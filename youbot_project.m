@@ -62,6 +62,8 @@ function youbot_project()
     map = OccupancyMap([201 201], 0.25);
     center = round( (size(map.Map) + 1) /2 );
     
+    dstar = Dstar(size(map.Map));
+    
     
     % Youbot initial position
     [res, originPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
@@ -112,6 +114,15 @@ function youbot_project()
 
             map.addPoints(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
             map.addPoints(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
+            
+            
+            % Update dstar costmap if map has evolved
+            if map.changed
+                dstar.costmap_set(map.getCostmap());
+                
+                % Replan target
+%                 dstar.plan(target);
+            end
         end
         
         

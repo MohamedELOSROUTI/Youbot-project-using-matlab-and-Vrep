@@ -3,10 +3,12 @@ classdef OccupancyMap < handle
     %   Detailed explanation goes here
     
     properties
-        Map
-        MapRes
-        X_axis
-        Y_axis
+        Map          % Map matrix
+        MapRes       % Occupancy map resolution
+        X_axis       % Plot X axis
+        Y_axis       % Plot Y axis
+        
+        changed      % Indicates if the occupancy map has changed
     end
     
     properties(Constant)
@@ -22,16 +24,37 @@ classdef OccupancyMap < handle
             
             obj.X_axis = [0 (size(1)-1)*res];
             obj.Y_axis = [0 (size(2)-1)*res];
+            
+            obj.changed = false;
         end
         
+        % Add multiple points with a certain value to the occupancy map
         function addPoints(obj, x, y, value)
             indexes = sub2ind(size(obj.Map), x, y);
+            
+            [r, c] = size(indexes(obj.Map(sub2ind(size(obj.Map), x, y)) < value));
+            if r ~= 0 && ~obj.changed
+                obj.changed = true;
+            end
+            
             obj.Map( indexes(obj.Map(sub2ind(size(obj.Map), x, y)) < value) ) = value;
         end
         
+        % Plot the occupancy map according the X and Y axis defined in the
+        % constructor
         function show(obj)
             imagesc(obj.X_axis, obj.Y_axis, obj.Map);
             set(gca,'xaxisLocation','top')
+        end
+        
+        
+        % Return map with only known obstacles represented by 1
+        % according to RTB Dstar map definition
+        function m = getCostmap(obj)
+            obj.changed = false;
+            
+            m = ones(size(obj.Map));
+            m(obj.Map == 2) = Inf;
         end
     end
     
