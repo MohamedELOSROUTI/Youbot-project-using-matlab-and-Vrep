@@ -62,16 +62,20 @@ function youbot_project()
     map = OccupancyMap([201 201], 0.25);
     center = round( (size(map.Map) + 1) /2 );
     
-    dstar = Dstar(size(map.Map));
+    dstar = Dstar(zeros(size(map.Map)), 'quiet');
     
     
     % Youbot initial position
     [res, originPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
     vrchk(vrep, res, true);
-    prevPosition = originPos(1);
+    prevPosition = originPos(1:2);
     [res, originEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
+    
+    % Target position
+    target = [originPos(1) originPos(2)+10];
+    dstar.plan(round(( target-originPos(1:2) )/map.MapRes) + center);
     
     
     % Voir comment l'enlever
@@ -121,7 +125,12 @@ function youbot_project()
                 dstar.costmap_set(map.getCostmap());
                 
                 % Replan target
-%                 dstar.plan(target);
+                % Bug : la costmap est bien recalculée avec les nouveaux
+                % obstacles mais ce n'est pas le cas de la distancemap :
+                % pourquoi ?
+                % Essayer de trouver pourquoi la distance map ne se met pas
+                % bien à jour
+                dstar.plan(round(( target-originPos(1:2) )/map.MapRes) + center);
             end
         end
         
@@ -134,28 +143,26 @@ function youbot_project()
             rotateRightVel = 0;
         end
         % Compute forward velocity
-        forwBackVel = youbotPos(1) + 5;
-        if (youbotPos(1) + 5 < .001) && (abs(youbotPos(1) - prevPosition) < .001)
-            forwBackVel = 0;
-        end
+        robotVel = target - youbotPos(1:2);
+        robotVel( abs(robotVel) < .001 & abs(youbotPos(1:2) - prevPosition) < .001 ) = 0;
         
         % Previous position and orientation
-        prevPosition = youbotPos(1);
+        prevPosition = youbotPos(1:2);
         prevOrientation = youbotEuler(3);
         
         % Set youbot velocities
-        h = youbot_drive(vrep, h, forwBackVel, rightVel, rotateRightVel);
+        h = youbot_drive(vrep, h, robotVel(2), robotVel(1), rotateRightVel);
         
         
         % Show map
-        map.show()
+        map.plot()
         hold on
         scatter(youbotPos(1) - originPos(1) + center(1)*map.MapRes, -(youbotPos(2) - originPos(2)) + center(2)*map.MapRes, '*', 'r')
         
         
         %% Calculation time control
         ellapsed = toc;
-        remaining = timestep - ellapsed;
+        remaining = timestep - ellapsed
         if remaining > 0
             pause(min(remaining, .01));
         end

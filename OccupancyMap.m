@@ -2,7 +2,7 @@ classdef OccupancyMap < handle
     %OCCUPANCYMAP Summary of this class goes here
     %   Detailed explanation goes here
     
-    properties
+    properties(SetAccess=private)
         Map          % Map matrix
         MapRes       % Occupancy map resolution
         X_axis       % Plot X axis
@@ -42,7 +42,7 @@ classdef OccupancyMap < handle
         
         % Plot the occupancy map according the X and Y axis defined in the
         % constructor
-        function show(obj)
+        function plot(obj)
             imagesc(obj.X_axis, obj.Y_axis, obj.Map);
             set(gca,'xaxisLocation','top')
         end
