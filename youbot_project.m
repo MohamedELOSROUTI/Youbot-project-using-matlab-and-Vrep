@@ -62,7 +62,7 @@ function youbot_project()
     map = OccupancyMap([201 201], 0.25);
     center = round( (size(map.Map) + 1) /2 );
     
-    dstar = Dstar(zeros(size(map.Map)), 'quiet');
+    dstar = youbotDstar(zeros(size(map.Map)), 'quiet');
     
     
     % Youbot initial position
@@ -88,7 +88,7 @@ function youbot_project()
     %% Start
     disp('Enter loop')
     while true
-        tic
+        start_loop = tic;
         
         if vrep.simxGetConnectionId(id) == -1
             error('Lost connection to remote API.');
@@ -122,15 +122,11 @@ function youbot_project()
             
             % Update dstar costmap if map has evolved
             if map.changed
-                dstar.costmap_set(map.getCostmap());
+                dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
                 
-                % Replan target
-                % Bug : la costmap est bien recalculée avec les nouveaux
-                % obstacles mais ce n'est pas le cas de la distancemap :
-                % pourquoi ?
-                % Essayer de trouver pourquoi la distance map ne se met pas
-                % bien à jour
+%                 tic
                 dstar.plan(round(( target-originPos(1:2) )/map.MapRes) + center);
+%                 toc
             end
         end
         
@@ -161,8 +157,8 @@ function youbot_project()
         
         
         %% Calculation time control
-        ellapsed = toc;
-        remaining = timestep - ellapsed
+        ellapsed = toc(start_loop);
+        remaining = timestep - ellapsed;
         if remaining > 0
             pause(min(remaining, .01));
         end
