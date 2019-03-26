@@ -1,11 +1,12 @@
 function youbot_project()
-    clc, clear all, close all
+    clc, clearvars, close all
 
     run('../../matlab/startup_robot.m')
     
     
     %% Parameters
     use_getPosition = true;
+    plot_data = false;
     
     
     %% Initiate the connection to the simulator. 
@@ -74,8 +75,12 @@ function youbot_project()
     prevOrientation = originEuler(3);
     
     % Target position
-    target = [originPos(1) originPos(2)+10];
-    dstar.plan(round(( target-originPos(1:2) )/map.MapRes) + center);
+    targets_q = Queue();
+    targets_q.push([originPos(1) originPos(2)+10]);
+    targets_q.push([originPos(1)-2 originPos(2)+10]);
+    cur_target = targets_q.front();
+    
+    dstar.plan(round(( targets_q.front()-originPos(1:2) )/map.MapRes) + center);
     
     
     % Voir comment l'enlever
@@ -94,44 +99,60 @@ function youbot_project()
             error('Lost connection to remote API.');
         end
         
-        % Get the position and the orientation of the robot. 
+        
+        % Get the position and the orientation of the robot.
+        % Mean=2.7E-4s  /  Min=1.8E-4s  /  Max=9.5ms
         [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
         vrchk(vrep, res, true);
         [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
         vrchk(vrep, res, true);
         
+        % Youbot rotation matrix (to put local coordinates in global axes)
+        rotationMatrix = ...
+            [cos(youbotEuler(3)) -sin(youbotEuler(3)) 0;...
+             sin(youbotEuler(3)) cos(youbotEuler(3))  0;...
+             0                   0                    1];
+        
         
         %% Finite State Machine
         if strcmp(fsm, 'map')
             % Get sensor infos
-            [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
+            % Mean=23ms  /  Min=16ms  /  Max=114ms
+            [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer); % Mean=1ms
             in = inpolygon(X, Y,...
                 [h.hokuyo1Pos(1), pts(1, :), h.hokuyo2Pos(1)],...
-                [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]);
+                [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]); % Assez lent, voir pour l'enlever ou accélérer
+            
+            % Rotated points (to avoid using sine and cosine in code)
+            r_pts = rotationMatrix*pts;
+            
             
             % Retrieve location information
+            % Mean=5.4E-4s  /  Min=3.2E-4s  /  Max=10.5ms
             x_pts = youbotPos(1) - originPos(1) + X(in)*cos(youbotEuler(3)) - Y(in)*sin(youbotEuler(3));
-            x_contact = youbotPos(1) - originPos(1) + pts(1, contacts)*cos(youbotEuler(3)) - pts(2, contacts)*sin(youbotEuler(3));
+            x_contact = youbotPos(1) - originPos(1) + r_pts(1, contacts);
 
             y_pts = youbotPos(2) - originPos(2) + Y(in)*cos(youbotEuler(3)) + X(in)*sin(youbotEuler(3));
-            y_contact = youbotPos(2) - originPos(2) + pts(2, contacts)*cos(youbotEuler(3)) + pts(1, contacts)*sin(youbotEuler(3));
+            y_contact = youbotPos(2) - originPos(2) + r_pts(2, contacts);
 
-            map.addPoints(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
-            map.addPoints(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
+            map.add_points(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
+            map.add_points(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
             
             
             % Update dstar costmap if map has evolved
+            % Mean=28ms  /  Min=3.3ms  /  Max=4s
             if map.changed
                 dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
                 
 %                 tic
-                dstar.plan(round(( target-originPos(1:2) )/map.MapRes) + center);
+                dstar.plan(round(( cur_target-originPos(1:2) )/map.MapRes) + center);
 %                 toc
             end
         end
         
         
         %% Youbot drive system
+        % Mean=5.8E-4s  /  Min=3.7E-4s  /  Max=23ms
         % Compute angle velocity
         rotateRightVel = 0 - youbotEuler(3);
         if (abs(angdiff(0, youbotEuler(3))) < .1 / 180 * pi) && ...
@@ -139,21 +160,33 @@ function youbot_project()
             rotateRightVel = 0;
         end
         % Compute forward velocity
-        robotVel = target - youbotPos(1:2);
+        robotVel = cur_target - youbotPos(1:2);
         robotVel( abs(robotVel) < .001 & abs(youbotPos(1:2) - prevPosition) < .001 ) = 0;
-        
         % Previous position and orientation
         prevPosition = youbotPos(1:2);
         prevOrientation = youbotEuler(3);
-        
         % Set youbot velocities
         h = youbot_drive(vrep, h, robotVel(2), robotVel(1), rotateRightVel);
         
         
-        % Show map
-        map.plot()
-        hold on
-        scatter(youbotPos(1) - originPos(1) + center(1)*map.MapRes, -(youbotPos(2) - originPos(2)) + center(2)*map.MapRes, '*', 'r')
+        % Check if target reached, if yes then get the next target from
+        % queue (check if queue is empty, if yes set current position as
+        % target so the robot wont move until further indications)
+        if all(abs(youbotPos(1:2) - cur_target) <= 0.01) && ~any(size(targets_q.front()) == 0)
+            cur_target = targets_q.next();
+            if any(size(cur_target) == 0)
+                cur_target = youbotPos(1:2);
+            end
+        end
+        
+        
+        % Show map (if needed: see 'plot_data' )
+        % Mean=19.4ms  /  Min=10.5ms  /  Max=440ms
+        if plot_data
+            map.plot();
+            hold on
+            scatter(youbotPos(1) - originPos(1) + center(1)*map.MapRes, -(youbotPos(2) - originPos(2)) + center(2)*map.MapRes, '*', 'r')
+        end
         
         
         %% Calculation time control
