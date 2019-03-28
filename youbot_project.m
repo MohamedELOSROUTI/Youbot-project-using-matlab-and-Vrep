@@ -1,7 +1,7 @@
 function youbot_project()
     clc, clearvars, close all
 
-    run('../../matlab/startup_robot.m')
+    run('..\..\matlab\startup_robot.m')
     
     
     %% Parameters
@@ -11,7 +11,7 @@ function youbot_project()
     nb_iter = 0;
     nb_iter_per_plot = 50;
     
-    front_angle = 15; %°
+    front_angle = 15; %Â°
     
     remap_distance = 1.5; %m
     remap = false;
@@ -20,7 +20,7 @@ function youbot_project()
     ylabel('Y');
     xlabel('X');
     
-    
+
     %% Initiate the connection to the simulator. 
     disp('Program started');
     
@@ -45,27 +45,14 @@ function youbot_project()
     h = youbot_hokuyo_init(vrep, h);
     
     pause(.2);
-    
-    
+
     %% Youbot constants
     % The time step the simulator is using (your code should run close to it). 
     timestep = .05;
-
-    % Minimum and maximum angles for all joints. Only useful to implement custom IK. 
-    armJointRanges = [-2.9496064186096, 2.9496064186096;
-                      -1.5707963705063, 1.308996796608;
-                      -2.2863812446594, 2.2863812446594;
-                      -1.7802357673645, 1.7802357673645;
-                      -1.5707963705063, 1.5707963705063 ];
-
-    % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
-    startingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
-    
-    
     % Parameters for controlling the youBot's wheels: at each iteration, those values will be set for the wheels. 
     % They are adapted at each iteration by the code. 
-    forwBackVel = 0; % Move straight ahead. 
-    rightVel = 0; % Go sideways. 
+    % Move straight ahead. 
+    robotVel = [0,0]; % Go sideways. 
     rotateRightVel = 0; % Rotate. 
     prevOrientation = 0; % Previous angle to goal (easy way to have a condition on the robot's angular speed). 
     prevPosition = 0; % Previous distance to goal (easy way to have a condition on the robot's speed).
@@ -81,7 +68,7 @@ function youbot_project()
     
     dstar = youbotDstar(zeros(size(map.Map)), 'quiet');
     
-    
+
     % Youbot initial position
     [res, originPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
     vrchk(vrep, res, true);
@@ -90,6 +77,7 @@ function youbot_project()
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
     
+
     % Target position
     targets_q = Queue();
     targets_q.push([originPos(1) originPos(2)]);
@@ -100,12 +88,18 @@ function youbot_project()
     dstar.plan(round(( targets_q.front()-originPos(1:2) )/map.MapRes) + center);
     
     
+    x=-3;
+    y=4;
+    
+    target=[x y]; % target that the youbot will try to follow
+        % Target position
+
     % Voir comment l'enlever
     [X, Y] = meshgrid(-5:map.MapRes:5, -5.5:map.MapRes:2.5);
     
     
     % Finite State Machine first state
-    fsm = 'map';
+    fsm = 'computePath';
     
     %% Start
     disp('Enter loop')
@@ -129,61 +123,135 @@ function youbot_project()
             [cos(youbotEuler(3)) -sin(youbotEuler(3)) 0;...
              sin(youbotEuler(3)) cos(youbotEuler(3))  0;...
              0                   0                    1];
-         
-        ii = round(youbotPos(1) - originPos(1)) + center(1);
-        jj = round(youbotPos(2) - originPos(2)) + center(2);
         
         
         %% Finite State Machine
-        if strcmp(fsm, 'map')
-            % Get sensor infos
-            % Mean=23ms  /  Min=16ms  /  Max=114ms
-            [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer); % Mean=1ms
-            in = inpolygon(X, Y,...
-                [h.hokuyo1Pos(1), pts(1, :), h.hokuyo2Pos(1)],...
-                [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]); % Assez lent, voir pour l'enlever ou accélérer
-            
-            % Rotated points (to avoid using sine and cosine in code)
-            r_pts = rotationMatrix*pts;
-            
-            
-            % Retrieve location information
-            % Mean=5.4E-4s  /  Min=3.2E-4s  /  Max=10.5ms
-            x_pts = youbotPos(1) - originPos(1) + X(in)*cos(youbotEuler(3)) - Y(in)*sin(youbotEuler(3));
-            x_contact = youbotPos(1) - originPos(1) + r_pts(1, contacts);
+       
+        % Get sensor infos
+        % Mean=23ms  /  Min=16ms  /  Max=114ms
+        [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer); % Mean=1ms
+        in = inpolygon(X, Y,...
+            [h.hokuyo1Pos(1), pts(1, :), h.hokuyo2Pos(1)],...
+            [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]); % Assez lent, voir pour l'enlever ou accÃ©lÃ©rer
 
-            y_pts = youbotPos(2) - originPos(2) + Y(in)*cos(youbotEuler(3)) + X(in)*sin(youbotEuler(3));
-            y_contact = youbotPos(2) - originPos(2) + r_pts(2, contacts);
+        % Rotated points (to avoid using sine and cosine in code)
+        r_pts = rotationMatrix*pts;
 
-            map.add_points(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
-            map.add_points(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
+
+        % Retrieve location information
+        % Mean=5.4E-4s  /  Min=3.2E-4s  /  Max=10.5ms
+        x_pts = youbotPos(1) - originPos(1) + X(in)*cos(youbotEuler(3)) - Y(in)*sin(youbotEuler(3));
+        x_contact = youbotPos(1) - originPos(1) + r_pts(1, contacts);
+
+        y_pts = youbotPos(2) - originPos(2) + Y(in)*cos(youbotEuler(3)) + X(in)*sin(youbotEuler(3));
+        y_contact = youbotPos(2) - originPos(2) + r_pts(2, contacts);
+
+        map.add_points(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
+        map.add_points(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
+
+        currentPos = [youbotPos(1) - originPos(1) + center(1)*map.MapRes,-(youbotPos(2) - originPos(2)) + center(2)*map.MapRes];
             
             
-            % Update dstar costmap if map has evolved
-            % Conditions of remap
-            %   - If a obstacle in front of the robot is too close
-            %   - If the point queue is empty (target reached)
-            % Mean=28ms  /  Min=3.3ms  /  Max=4s
-            if remap
-                remap = false;
-                dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
-                
-                dstar.plan(round(( cur_target-originPos(1:2) )/map.MapRes) + center);
-                dm = dstar.distancemap_get();
-                % When the house is fully, the distancemap should show Inf
-                % inside the house => map fully discovered => end mapping
-                if dm(jj, ii) == Inf  % Check indexes order
-                    fsm = 'end';
+        dstar.modify_cost([round(y_contact/map.MapRes) + center(1) ;-round(x_contact/map.MapRes) + center(2)], Inf);
+    
+        if strcmp(fsm, 'computePath')
+            
+            goal=round((target-originPos(1:2))/map.MapRes) + center;
+            
+            dstar.reset();
+            dstar.goal_set([size(map.Map,2)-goal(2),goal(1)]);
+            dstar.plan([size(map.Map,2)-goal(2),goal(1)]);
+            
+            currentPosIndex = round((youbotPos(1:2)-originPos(1:2))/map.MapRes) + center;
+            
+            targetPointsIndex=dstar.path([currentPosIndex(2),size(map.Map,1) - currentPosIndex(1)]);
+            targetPointsXY = [((size(map.Map,2)-targetPointsIndex(:,2))-center(1))*map.MapRes+originPos(1),(targetPointsIndex(:,1)-center(2))*map.MapRes+originPos(2)];
+            targetPointsXY_DS=[targetPointsXY(1,:) ; downsample(targetPointsXY(2:end-1,:),4) ; targetPointsXY(end,:)]; % Downsample of targetPointsXY
+            i=1;
+            fsm='rotate';
+
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        
+        elseif strcmp(fsm, 'rotate')
+            if youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)<=targetPointsXY_DS(i,2)
+                angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))-pi/2;
+            elseif  youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
+                angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
+            elseif youbotPos(1)<=targetPointsXY_DS(i,1)  && youbotPos(2)<=targetPointsXY_DS(i,2)
+                angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))+pi/2;
+            elseif youbotPos(1)<=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
+                angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
+            end
+            
+            %% First, rotate the robot to go to one table.             
+            % The rotation velocity depends on the difference between the current angle and the target. 
+            rotateRightVel = angdiff(angl, youbotEuler(3));
+            
+            % When the rotation is done (with a sufficiently high precision), move on to the next state. 
+            if (abs(angdiff(angl, youbotEuler(3))) < 10 / 180 * pi) && ...
+                    (abs(angdiff(prevOrientation, youbotEuler(3))) < 1 / 180 * pi)
+                rotateRightVel = 0;
+                fsm = 'driveToTarget';
+            end
+            
+            
+            
+        elseif strcmp(fsm, 'driveToTarget')
+            if angl >= -pi/2-pi/4 && angl<=-pi/4
+                robotVel(1) = (targetPointsXY_DS(i,1)-youbotPos(1));
+            elseif (angl >= -pi && angl<=-pi/2-pi/4) || (angl>=pi/2+pi/4 && angl<=pi)
+                robotVel(1) = -(targetPointsXY_DS(i,2)-youbotPos(2));
+            elseif (angl>=pi/4 && angl<=pi/2+pi/4)
+                robotVel(1) = -(targetPointsXY_DS(i,1)-youbotPos(1));
+            elseif (angl>=-pi/4 && angl<=pi/4)
+                robotVel(1) = (targetPointsXY_DS(i,2)-youbotPos(2));%pos(2)-youbotPos(2);
+            end
+%             i
+            disp('CurrentTarget')
+            targetPointsXY_DS(i,:)
+            disp('FinalTarget')
+%             target
+             %robotVel = -(targetPointsXY_DS(i,:)-youbotPos(1:2));
+            % If the robot is sufficiently close and its speed is
+            % sufficiently low, stop it and compute new target
+            if (norm(youbotPos(1:2) - targetPointsXY_DS(i,:)) < 0.5) && (norm(youbotPos(1:2) - prevPosition) < 0.05)
+                robotVel = [0,0];
+                if i<size(targetPointsXY_DS,1)
+                    i=i+1;
+ 
+                    fsm='rotate';
+                else
+                    %target = [-1.5,3];
+                    %fsm = 'computePath';%--> compute new goal ( find ==0 unknown) and iterate
+                    disp('end')
                 end
             end
+        end
+        
+        % Update dstar costmap if map has evolved
+        % Conditions of remap
+        %   - If a obstacle in front of the robot is too close
+        %   - If the point queue is empty (target reached)
+        % Mean=28ms  /  Min=3.3ms  /  Max=4s
+        if remap
+            remap = false;
+            dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
+
+            dstar.plan(round(( cur_target-originPos(1:2) )/map.MapRes) + center);
+            dm = dstar.distancemap_get();
+            % When the house is fully, the distancemap should show Inf
+            % inside the house => map fully discovered => end mapping
+            if dm(jj, ii) == Inf  % Check indexes order
+                fsm = 'end';
+            end
+        end
                 
             
-            % Check in front of the robot
-            in_front = abs(pts(1,:)./pts(2,:)) < tan(front_angle*pi/180);
-            d = sqrt(r_pts(1,contacts & in_front).^2 + r_pts(2,contacts & in_front).^2);
-            if min(d) < remap_distance
-                remap = true;
-            end
+        % Check in front of the robot
+        in_front = abs(pts(1,:)./pts(2,:)) < tan(front_angle*pi/180);
+        d = sqrt(r_pts(1,contacts & in_front).^2 + r_pts(2,contacts & in_front).^2);
+        if min(d) < remap_distance
+            remap = true;
         end
         
         
@@ -207,7 +275,7 @@ function youbot_project()
             robotVel = robotVel./4;
             rotateRightVel = rotateRightVel/4;
         end
-        h = youbot_drive(vrep, h, robotVel(2), robotVel(1), 0);
+        h = youbot_drive(vrep, h, robotVel(2), robotVel(1), rotateRightVel);
         
         
         %% Handle targets queue
@@ -234,7 +302,8 @@ function youbot_project()
             title(sprintf('Mapping after %1$d iterations', nb_iter));
             hold on;
             
-            scatter(youbotPos(1) - originPos(1) + center(1)*map.MapRes, -(youbotPos(2) - originPos(2)) + center(2)*map.MapRes, '*', 'r')
+            scatter(currentPos(1),currentPos(2), '*', 'r')
+            scatter(targetPointsIndex(:,1),targetPointsIndex(:,2),'+','g')
             hold off;
         end
         
