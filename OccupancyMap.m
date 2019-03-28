@@ -32,10 +32,11 @@ classdef OccupancyMap < handle
         
         % Add multiple points with a certain value to the occupancy map
         function add_points(obj, x, y, value)
+            obj.changed = false;
             indexes = sub2ind(size(obj.Map), x, y);
             
             [r, c] = size(indexes(obj.Map(sub2ind(size(obj.Map), x, y)) < value));
-            if r ~= 0 && ~obj.changed
+            if all([r c] ~= 0) && ~obj.changed
                 obj.changed = true;
             end
             
@@ -55,8 +56,6 @@ classdef OccupancyMap < handle
         % according to RTB Dstar map definition
         % Use : 'map.Costmmap();'
         function cm = get.Costmap(obj)
-            obj.changed = false;
-            
             cm = ones(size(obj.Map));
             cm(obj.Map == 2) = Inf;
         end

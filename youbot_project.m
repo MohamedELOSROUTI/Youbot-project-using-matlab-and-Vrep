@@ -6,7 +6,19 @@ function youbot_project()
     
     %% Parameters
     use_getPosition = true;
-    plot_data = false;
+    plot_data = true;
+    
+    nb_iter = 0;
+    nb_iter_per_plot = 50;
+    
+    front_angle = 15; %°
+    
+    remap_distance = 1.5; %m
+    remap = false;
+    
+    mapping_fig = figure('Name', 'Mapping', 'NumberTitle', 'Off', 'visible', 'Off');
+    ylabel('Y');
+    xlabel('X');
     
     
     %% Initiate the connection to the simulator. 
@@ -63,6 +75,10 @@ function youbot_project()
     map = OccupancyMap([201 201], 0.25);
     center = round( (size(map.Map) + 1) /2 );
     
+    figure(mapping_fig);
+    map.plot();
+    set(mapping_fig, 'visible', 'on');
+    
     dstar = youbotDstar(zeros(size(map.Map)), 'quiet');
     
     
@@ -76,8 +92,9 @@ function youbot_project()
     
     % Target position
     targets_q = Queue();
-    targets_q.push([originPos(1) originPos(2)+10]);
-    targets_q.push([originPos(1)-2 originPos(2)+10]);
+    targets_q.push([originPos(1) originPos(2)]);
+%     targets_q.push([originPos(1) originPos(2)+10]);
+%     targets_q.push([originPos(1)-2 originPos(2)+10]);
     cur_target = targets_q.front();
     
     dstar.plan(round(( targets_q.front()-originPos(1:2) )/map.MapRes) + center);
@@ -112,6 +129,9 @@ function youbot_project()
             [cos(youbotEuler(3)) -sin(youbotEuler(3)) 0;...
              sin(youbotEuler(3)) cos(youbotEuler(3))  0;...
              0                   0                    1];
+         
+        ii = round(youbotPos(1) - originPos(1)) + center(1);
+        jj = round(youbotPos(2) - originPos(2)) + center(2);
         
         
         %% Finite State Machine
@@ -140,13 +160,29 @@ function youbot_project()
             
             
             % Update dstar costmap if map has evolved
+            % Conditions of remap
+            %   - If a obstacle in front of the robot is too close
+            %   - If the point queue is empty (target reached)
             % Mean=28ms  /  Min=3.3ms  /  Max=4s
-            if map.changed
+            if remap
+                remap = false;
                 dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
                 
-%                 tic
                 dstar.plan(round(( cur_target-originPos(1:2) )/map.MapRes) + center);
-%                 toc
+                dm = dstar.distancemap_get();
+                % When the house is fully, the distancemap should show Inf
+                % inside the house => map fully discovered => end mapping
+                if dm(jj, ii) == Inf  % Check indexes order
+                    fsm = 'end';
+                end
+            end
+                
+            
+            % Check in front of the robot
+            in_front = abs(pts(1,:)./pts(2,:)) < tan(front_angle*pi/180);
+            d = sqrt(r_pts(1,contacts & in_front).^2 + r_pts(2,contacts & in_front).^2);
+            if min(d) < remap_distance
+                remap = true;
             end
         end
         
@@ -166,9 +202,15 @@ function youbot_project()
         prevPosition = youbotPos(1:2);
         prevOrientation = youbotEuler(3);
         % Set youbot velocities
-        h = youbot_drive(vrep, h, robotVel(2), robotVel(1), rotateRightVel);
+        if remap
+            % Slow down the robot if we need to remap
+            robotVel = robotVel./4;
+            rotateRightVel = rotateRightVel/4;
+        end
+        h = youbot_drive(vrep, h, robotVel(2), robotVel(1), 0);
         
         
+        %% Handle targets queue
         % Check if target reached, if yes then get the next target from
         % queue (check if queue is empty, if yes set current position as
         % target so the robot wont move until further indications)
@@ -176,17 +218,29 @@ function youbot_project()
             cur_target = targets_q.next();
             if any(size(cur_target) == 0)
                 cur_target = youbotPos(1:2);
+                
+                remap = true; % Maybe add condition on fsm='map'
             end
         end
         
         
+        %% Plotting
         % Show map (if needed: see 'plot_data' )
         % Mean=19.4ms  /  Min=10.5ms  /  Max=440ms
-        if plot_data
+        if plot_data && mod(nb_iter, nb_iter_per_plot) == 0
+            figure(mapping_fig);
+            
             map.plot();
-            hold on
+            title(sprintf('Mapping after %1$d iterations', nb_iter));
+            hold on;
+            
             scatter(youbotPos(1) - originPos(1) + center(1)*map.MapRes, -(youbotPos(2) - originPos(2)) + center(2)*map.MapRes, '*', 'r')
+            hold off;
         end
+        
+        % Count number of times while is executed to save execution time on
+        % mapping
+        nb_iter = nb_iter + 1;
         
         
         %% Calculation time control
