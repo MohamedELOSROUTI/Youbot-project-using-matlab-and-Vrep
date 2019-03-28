@@ -377,6 +377,11 @@ classdef youbotDstar < Navigation
             
             ds.changed = true;
         end
+        
+        function goal_set(ds, goal)
+            ds.goal = goal;
+            ds.goal_change();
+        end
     end % public methods
 
     methods (Access=protected)

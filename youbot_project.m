@@ -1,7 +1,7 @@
 function youbot_project()
     clc, clear all, close all
 
-    run('C:\Users\elosr\trs\matlab\startup_robot.m')
+    run('..\..\matlab\startup_robot.m')
     
     
     %% Parameters
@@ -67,7 +67,7 @@ function youbot_project()
     x=-3;
     y=4;
     
-    target=[x,y]; % target that the youbot will try to follow
+    target=[x y]; % target that the youbot will try to follow
         % Target position
 
     % Voir comment l'enlever
@@ -111,35 +111,39 @@ function youbot_project()
             map.addPoints(-round(y_pts/map.MapRes) + center(1), round(x_pts/map.MapRes) + center(2), map.Free);
             map.addPoints(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
             
-            currentPosIndex = [youbotPos(1) - originPos(1) + center(1)*map.MapRes,-(youbotPos(2) - originPos(2)) + center(2)*map.MapRes];
+            currentPos = [youbotPos(1) - originPos(1) + center(1)*map.MapRes,-(youbotPos(2) - originPos(2)) + center(2)*map.MapRes];
             
-        dstar.modify_cost([round(y_contact/map.MapRes) + center(2) ;-round(x_contact/map.MapRes) + center(1)], Inf);
+        dstar.modify_cost([round(y_contact/map.MapRes) + center(1) ;-round(x_contact/map.MapRes) + center(2)], Inf);
     
         if strcmp(fsm, 'computePath')
             
             goal=round((target-originPos(1:2))/map.MapRes) + center;
-            %goal = [-round((target(1)-originPos(1))/map.MapRes) + center(1),round((target(2)-originPos(2))/map.MapRes) + center(1)];
-            dstar.plan([size(map.Map,2)-goal(2),size(map.Map,1)-goal(1)]);
-            %dstar.plan(goal);
-            currentPosIndex_ = round((youbotPos(1:2)-originPos(1:2))/map.MapRes) + center;
-            targetPointsIndex=dstar.path([currentPosIndex_(2),currentPosIndex_(1)]);
-            targetPointsXY = [(targetPointsIndex(:,2)-center(1))*map.MapRes+originPos(1),(targetPointsIndex(:,1)-center(2))*map.MapRes+originPos(2)];
-            targetPointsXY_DS=downsample(targetPointsXY,4); % Downsample of targetPointsXY
+            
+            dstar.reset();
+            dstar.goal_set([size(map.Map,2)-goal(2),goal(1)]);
+            dstar.plan([size(map.Map,2)-goal(2),goal(1)]);
+            
+            currentPosIndex = round((youbotPos(1:2)-originPos(1:2))/map.MapRes) + center;
+            
+            targetPointsIndex=dstar.path([currentPosIndex(2),size(map.Map,1) - currentPosIndex(1)]);
+            targetPointsXY = [((size(map.Map,2)-targetPointsIndex(:,2))-center(1))*map.MapRes+originPos(1),(targetPointsIndex(:,1)-center(2))*map.MapRes+originPos(2)];
+            targetPointsXY_DS=[targetPointsXY(1,:) ; downsample(targetPointsXY(2:end-1,:),4) ; targetPointsXY(end,:)]; % Downsample of targetPointsXY
             i=1;
             fsm='rotate';
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         
         elseif strcmp(fsm, 'rotate')
-        if youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)<=targetPointsXY_DS(i,2)
-            angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))-pi/2;
-        elseif  youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
-            angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
-        elseif youbotPos(1)<=targetPointsXY_DS(i,1)  && youbotPos(2)<=targetPointsXY_DS(i,2)
-            angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))+pi/2;
-        elseif youbotPos(1)<=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
-            angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
-        end
+            if youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)<=targetPointsXY_DS(i,2)
+                angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))-pi/2;
+            elseif  youbotPos(1)>=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
+                angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
+            elseif youbotPos(1)<=targetPointsXY_DS(i,1)  && youbotPos(2)<=targetPointsXY_DS(i,2)
+                angl=atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)))+pi/2;
+            elseif youbotPos(1)<=targetPointsXY_DS(i,1) && youbotPos(2)>=targetPointsXY_DS(i,2)
+                angl=-atan((targetPointsXY_DS(i,2)-youbotPos(2))/(targetPointsXY_DS(i,1)-youbotPos(1)));
+            end
+            
             %% First, rotate the robot to go to one table.             
             % The rotation velocity depends on the difference between the current angle and the target. 
             rotateRightVel = angdiff(angl, youbotEuler(3));
@@ -149,7 +153,10 @@ function youbot_project()
                     (abs(angdiff(prevOrientation, youbotEuler(3))) < 1 / 180 * pi)
                 rotateRightVel = 0;
                 fsm = 'driveToTarget';
-            end  
+            end
+            
+            
+            
         elseif strcmp(fsm, 'driveToTarget')
             if angl >= -pi/2-pi/4 && angl<=-pi/4
                 robotVel(1) = (targetPointsXY_DS(i,1)-youbotPos(1));
@@ -160,11 +167,11 @@ function youbot_project()
             elseif (angl>=-pi/4 && angl<=pi/4)
                 robotVel(1) = (targetPointsXY_DS(i,2)-youbotPos(2));%pos(2)-youbotPos(2);
             end
-            i
+%             i
             disp('CurrentTarget')
             targetPointsXY_DS(i,:)
             disp('FinalTarget')
-            target
+%             target
              %robotVel = -(targetPointsXY_DS(i,:)-youbotPos(1:2));
             % If the robot is sufficiently close and its speed is
             % sufficiently low, stop it and compute new target
@@ -172,6 +179,7 @@ function youbot_project()
                 robotVel = [0,0];
                 if i<size(targetPointsXY_DS,1)
                     i=i+1;
+ 
                     fsm='rotate';
                 else
                     %target = [-1.5,3];
@@ -189,7 +197,9 @@ function youbot_project()
         figure(1)
         map.plot()
         hold on
-        scatter(currentPosIndex(1),currentPosIndex(2), '*', 'r')
+        scatter(currentPos(1),currentPos(2), '*', 'r')
+        
+        scatter(targetPointsIndex(:,1),targetPointsIndex(:,2),'+','g')
         %% Calculation time control
         ellapsed = toc(start_loop);
         remaining = timestep - ellapsed;
