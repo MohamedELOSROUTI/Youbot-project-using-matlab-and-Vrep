@@ -78,21 +78,16 @@ function youbot_project()
     prevOrientation = originEuler(3);
     
 
-    % Target position
-    targets_q = Queue();
-    targets_q.push([originPos(1) originPos(2)]);
-%     targets_q.push([originPos(1) originPos(2)+10]);
-%     targets_q.push([originPos(1)-2 originPos(2)+10]);
-    cur_target = targets_q.front();
+% A voir si on l'utilise
+%     % Target position
+%     targets_q = Queue();
+%     targets_q.push([originPos(1) originPos(2)]);
+% %     targets_q.push([originPos(1) originPos(2)+10]);
+% %     targets_q.push([originPos(1)-2 originPos(2)+10]);
+%     cur_target = targets_q.front();
+%     
+%     dstar.plan(round(( targets_q.front()-originPos(1:2) )/map.MapRes) + center);
     
-    dstar.plan(round(( targets_q.front()-originPos(1:2) )/map.MapRes) + center);
-    
-    
-    x=-3;
-    y=4;
-    
-    target=[x y]; % target that the youbot will try to follow
-        % Target position
 
     % Voir comment l'enlever
     [X, Y] = meshgrid(-5:map.MapRes:5, -5.5:map.MapRes:2.5);
@@ -117,6 +112,7 @@ function youbot_project()
         vrchk(vrep, res, true);
         [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
         vrchk(vrep, res, true);
+        currentPosIndex = round((youbotPos(1:2)-originPos(1:2))/map.MapRes) + center;
         
         % Youbot rotation matrix (to put local coordinates in global axes)
         rotationMatrix = ...
@@ -125,7 +121,8 @@ function youbot_project()
              0                   0                    1];
         
         
-        %% Finite State Machine
+        %% Mapping
+        % Put condition in front of block if not mapping
        
         % Get sensor infos
         % Mean=23ms  /  Min=16ms  /  Max=114ms
@@ -150,25 +147,30 @@ function youbot_project()
         map.add_points(-round(y_contact/map.MapRes) + center(1), round(x_contact/map.MapRes) + center(2), map.Wall);
 
         currentPos = [youbotPos(1) - originPos(1) + center(1)*map.MapRes,-(youbotPos(2) - originPos(2)) + center(2)*map.MapRes];
-            
-            
+        
         dstar.modify_cost([round(y_contact/map.MapRes) + center(1) ;-round(x_contact/map.MapRes) + center(2)], Inf);
-    
+        
+        
+        %% Finite State Machine
         if strcmp(fsm, 'computePath')
-            
-            goal=round((target-originPos(1:2))/map.MapRes) + center;
+            goal = map.findNewTarget(currentPosIndex);
             
             dstar.reset();
             dstar.goal_set([size(map.Map,2)-goal(2),goal(1)]);
             dstar.plan([size(map.Map,2)-goal(2),goal(1)]);
             
-            currentPosIndex = round((youbotPos(1:2)-originPos(1:2))/map.MapRes) + center;
-            
-            targetPointsIndex=dstar.path([currentPosIndex(2),size(map.Map,1) - currentPosIndex(1)]);
-            targetPointsXY = [((size(map.Map,2)-targetPointsIndex(:,2))-center(1))*map.MapRes+originPos(1),(targetPointsIndex(:,1)-center(2))*map.MapRes+originPos(2)];
-            targetPointsXY_DS=[targetPointsXY(1,:) ; downsample(targetPointsXY(2:end-1,:),4) ; targetPointsXY(end,:)]; % Downsample of targetPointsXY
-            i=1;
-            fsm='rotate';
+            dm = dstar.distancemap_get();
+            % When the house is fully, the distancemap should show Inf
+            % inside the house => map fully discovered => end mapping
+            if dm(jj, ii) == Inf  % Check indexes order
+                fsm = 'end';
+            else
+                targetPointsIndex=dstar.path([currentPosIndex(2),size(map.Map,1) - currentPosIndex(1)]);
+                targetPointsXY = [((size(map.Map,2)-targetPointsIndex(:,2))-center(1))*map.MapRes+originPos(1),(targetPointsIndex(:,1)-center(2))*map.MapRes+originPos(2)];
+                targetPointsXY_DS=[targetPointsXY(1,:) ; downsample(targetPointsXY(2:end-1,:),4) ; targetPointsXY(end,:)]; % Downsample of targetPointsXY
+                i=1;
+                fsm='rotate';
+            end
 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         
@@ -193,8 +195,6 @@ function youbot_project()
                 rotateRightVel = 0;
                 fsm = 'driveToTarget';
             end
-            
-            
             
         elseif strcmp(fsm, 'driveToTarget')
             if angl >= -pi/2-pi/4 && angl<=-pi/4
@@ -227,24 +227,6 @@ function youbot_project()
                 end
             end
         end
-        
-        % Update dstar costmap if map has evolved
-        % Conditions of remap
-        %   - If a obstacle in front of the robot is too close
-        %   - If the point queue is empty (target reached)
-        % Mean=28ms  /  Min=3.3ms  /  Max=4s
-        if remap
-            remap = false;
-            dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
-
-            dstar.plan(round(( cur_target-originPos(1:2) )/map.MapRes) + center);
-            dm = dstar.distancemap_get();
-            % When the house is fully, the distancemap should show Inf
-            % inside the house => map fully discovered => end mapping
-            if dm(jj, ii) == Inf  % Check indexes order
-                fsm = 'end';
-            end
-        end
                 
             
         % Check in front of the robot
@@ -255,30 +237,20 @@ function youbot_project()
         end
         
         
-        %% Youbot drive system
-        % Mean=5.8E-4s  /  Min=3.7E-4s  /  Max=23ms
-        % Compute angle velocity
-        rotateRightVel = 0 - youbotEuler(3);
-        if (abs(angdiff(0, youbotEuler(3))) < .1 / 180 * pi) && ...
-                    (abs(angdiff(prevOrientation, youbotEuler(3))) < .01 / 180 * pi)
-            rotateRightVel = 0;
-        end
-        % Compute forward velocity
-        robotVel = cur_target - youbotPos(1:2);
-        robotVel( abs(robotVel) < .001 & abs(youbotPos(1:2) - prevPosition) < .001 ) = 0;
         % Previous position and orientation
         prevPosition = youbotPos(1:2);
         prevOrientation = youbotEuler(3);
+        
+        
         % Set youbot velocities
         if remap
             % Slow down the robot if we need to remap
-            robotVel = robotVel./4;
-            rotateRightVel = rotateRightVel/4;
+            fsm = 'computePath';
         end
         h = youbot_drive(vrep, h, robotVel(2), robotVel(1), rotateRightVel);
         
         
-        %% Handle targets queue
+        %% Handle targets queue - A voir si laisser
         % Check if target reached, if yes then get the next target from
         % queue (check if queue is empty, if yes set current position as
         % target so the robot wont move until further indications)

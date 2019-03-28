@@ -23,7 +23,8 @@ classdef OccupancyMap < handle
         function newTarget = findNewTarget(obj,currentPosIndex)
             % return the closest index to currentPosIndex with 0 values
             [index0(:,1),index0(:,2)]=find(obj.Map==obj.Unknown);
-            [~,I]=min(vecnorm(currentPosIndex-index0,2,2));
+            norm = vectnorm(currentPosIndex-index0,2);
+            [~,I]=min(norm(norm > 2));
             newTarget = index0(I,:);
         end
         
