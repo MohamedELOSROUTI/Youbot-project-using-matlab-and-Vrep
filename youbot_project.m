@@ -113,7 +113,7 @@ function youbot_project()
             
             currentPosIndex = [youbotPos(1) - originPos(1) + center(1)*map.MapRes,-(youbotPos(2) - originPos(2)) + center(2)*map.MapRes];
             
-        dstar.modify_cost([round(x_contact/map.MapRes) + center(2) ;-round(y_contact/map.MapRes) + center(1)], Inf);
+        dstar.modify_cost([round(y_contact/map.MapRes) + center(2) ;-round(x_contact/map.MapRes) + center(1)], Inf);
     
         if strcmp(fsm, 'computePath')
             
@@ -149,10 +149,7 @@ function youbot_project()
                     (abs(angdiff(prevOrientation, youbotEuler(3))) < 1 / 180 * pi)
                 rotateRightVel = 0;
                 fsm = 'driveToTarget';
-            end
-            
-            
-            
+            end  
         elseif strcmp(fsm, 'driveToTarget')
             if angl >= -pi/2-pi/4 && angl<=-pi/4
                 robotVel(1) = (targetPointsXY_DS(i,1)-youbotPos(1));
@@ -175,7 +172,6 @@ function youbot_project()
                 robotVel = [0,0];
                 if i<size(targetPointsXY_DS,1)
                     i=i+1;
- 
                     fsm='rotate';
                 else
                     %target = [-1.5,3];
@@ -194,8 +190,6 @@ function youbot_project()
         map.plot()
         hold on
         scatter(currentPosIndex(1),currentPosIndex(2), '*', 'r')
-        
-        scatter(targetPointsIndex(:,1),targetPointsIndex(:,2),'+','g')
         %% Calculation time control
         ellapsed = toc(start_loop);
         remaining = timestep - ellapsed;

@@ -18,13 +18,19 @@ classdef OccupancyMap < handle
     end
     
     methods
+        function newTarget = findNewTarget(obj,currentPosIndex)
+            % return the closest index to currentPosIndex with 0 values
+            [index0(:,1),index0(:,2)]=find(obj.Map==obj.Unknown);
+            [~,I]=min(vecnorm(currentPosIndex-index0,2,2));
+            newTarget = index0(I,:);
+        end
+        
         function obj = OccupancyMap(size, res)
             obj.Map = zeros(size);
             obj.MapRes = res;
             
             obj.X_axis = [0 (size(1)-1)*res];
             obj.Y_axis = [0 (size(2)-1)*res];
-            
             obj.changed = false;
         end
         
@@ -55,7 +61,10 @@ classdef OccupancyMap < handle
             
             m = ones(size(obj.Map));
             m(obj.Map == 2) = Inf;
+            
+        
         end
+        
     end
     
 end
