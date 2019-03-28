@@ -9,6 +9,8 @@ classdef OccupancyMap < handle
         Y_axis       % Plot Y axis
         
         changed      % Indicates if the occupancy map has changed
+        
+        Costmap
     end
     
     properties(Constant)
@@ -35,11 +37,12 @@ classdef OccupancyMap < handle
         end
         
         % Add multiple points with a certain value to the occupancy map
-        function addPoints(obj, x, y, value)
+        function add_points(obj, x, y, value)
+            obj.changed = false;
             indexes = sub2ind(size(obj.Map), x, y);
             
             [r, c] = size(indexes(obj.Map(sub2ind(size(obj.Map), x, y)) < value));
-            if r ~= 0 && ~obj.changed
+            if all([r c] ~= 0) && ~obj.changed
                 obj.changed = true;
             end
             
@@ -50,19 +53,18 @@ classdef OccupancyMap < handle
         % constructor
         function plot(obj)
             imagesc(obj.X_axis, obj.Y_axis, obj.Map);
+            colormap(gray)
             set(gca,'xaxisLocation','top')
         end
         
         
         % Return map with only known obstacles represented by 1
         % according to RTB Dstar map definition
-        function m = getCostmap(obj)
-            obj.changed = false;
-            
-            m = ones(size(obj.Map));
-            m(obj.Map == 2) = Inf;
-            
-        
+
+        % Use : 'map.Costmmap();'
+        function cm = get.Costmap(obj)
+            cm = ones(size(obj.Map));
+            cm(obj.Map == 2) = Inf;
         end
         
     end
