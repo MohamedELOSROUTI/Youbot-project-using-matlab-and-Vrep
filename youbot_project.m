@@ -1,7 +1,7 @@
 function youbot_project()
     clc, clear all, close all
 
-    run('../../matlab/startup_robot.m')
+    run('C:/Users/elosr/trs/matlab/startup_robot.m')
     
     
     %% Parameters
