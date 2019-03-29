@@ -11,6 +11,8 @@ function youbot_project()
     nb_iter = 0;
     nb_iter_per_plot = 50;
     
+    nb_iter_slow = 0;
+    
     front_angle = 15; %°
     
     remap_distance = 1.5; %m
@@ -90,8 +92,17 @@ function youbot_project()
     % the rest of the code
     % Gonna disapear when random path is working
     discovr_q = Queue();
-    discovr_q.push([-3 4]);
-    discovr_q.push([2 4]);
+    discovr_q.push([-3 3]);
+    discovr_q.push([-5 5]);
+    discovr_q.push([5 6.5]);
+    discovr_q.push([-0.5 4]);
+    discovr_q.push([-0.5 2]);
+    discovr_q.push([6 2]);
+    discovr_q.push([6 -1.75]);
+    discovr_q.push([1.5 -1.75]);
+    discovr_q.push([1.5 -5]);
+    discovr_q.push([4 -5]);
+    discovr_q.push([-4 -4.5]);
     
 
     % Voir comment l'enlever
@@ -232,7 +243,7 @@ function youbot_project()
             
             % If the robot is sufficiently close and its speed is
             % sufficiently low, stop it and compute new target
-            if (norm(youbotPos(1:2) - cur_target) < 0.5) && (norm(youbotPos(1:2) - prevPosition) < 0.05)
+            if (norm(youbotPos(1:2) - cur_target) < 0.4) && (norm(youbotPos(1:2) - prevPosition) < 0.05)
                 robotVel = [0,0];
                 if ~targets_q.isEmpty()
                     cur_target = targets_q.front();
@@ -242,11 +253,21 @@ function youbot_project()
                 else
                     cur_target = youbotPos(1:2);
                     
-                    fsm = 'computePath'; % Compute new goal ( find ==0 unknown) and iterate
+                    fsm = 'slowDown'; % Compute new goal ( find ==0 unknown) and iterate
+                    disp('end');
                     
                     robotVel = [0 0];
                     rotateRightVel = 0;
                 end
+            end
+        elseif strcmp(fsm, 'slowDown')
+            robotVel = [0 0];
+            rotateRightVel = 0;
+            
+            nb_iter_slow = nb_iter_slow +1;
+            if ~mod(nb_iter_slow, 15)
+                fsm = 'computePath';
+                nb_iter_slow = 0;
             end
         end
         
