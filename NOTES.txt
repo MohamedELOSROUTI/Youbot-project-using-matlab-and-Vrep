@@ -37,6 +37,10 @@ Choisir le goal du Dstar ?
 		|-> fonction pour aider à fixer l'objectif ?
 	- Modifier le point si la valeur de la distancemap à la position du youbot est trop grande
 		|-> Tester le Dstar dans un espace clot avec le goal en dehors => voir résultat
-	-Voir comment afficher le chemin
+	- Voir comment afficher le chemin
 
 ATTENTION : gérer les indices de Dstar par rapport aux notres
+
+
+Gérer déplacement latéral ?
+    - Mentir sur l'orientation du robot (controller) et vectoriser la vitesse pour qu'il s'y dirrige en 'crabe'
