@@ -7,6 +7,7 @@ function youbot_project()
     %% Parameters
     use_getPosition = true;
     plot_data = true;
+    mapping = true;
     
     nb_iter = 0;
     nb_iter_per_plot = 10;
@@ -17,8 +18,12 @@ function youbot_project()
     remap_distance = 1.5; %m
     remap = false;
     %%%%%
+    
+    robot_radius = 0.3;
 
     targets_q = Queue();
+    path = [];
+    repath = true;
     
     mapping_fig = figure('Name', 'Mapping figure');
     
@@ -64,21 +69,23 @@ function youbot_project()
     % Youbot's map
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
-    map = robotics.BinaryOccupancyGrid(50, 50, 4);
+    map = robotics.OccupancyGrid(50, 50, 5);
+    [x, y] = meshgrid(linspace(-0.5, 0.5, 20));
+    R = hypot(x, y);
+    setOccupancy(map, 25+[x(R < 2*robot_radius) y(R < 2*robot_radius)], 0);
     % Inflated copy of map
-    imap = map;
+    imap = copy(map);
     
     
     controller = robotics.PurePursuit;
-    path = [-2 -5.25; -2 0; -4 4; -6 3];
-    controller.Waypoints = path;
     controller.DesiredLinearVelocity = 1;
     controller.MaxAngularVelocity = 1;
     controller.LookaheadDistance = 1;
-    for i = 2:size(path, 1)
-        targets_q.push(path(i,:));
-    end
-    cur_target = targets_q.front();
+    
+    prm = robotics.PRM;
+    prm.Map = imap;
+    prm.NumNodes = 20;
+    prm.ConnectionDistance = 3;
     
 
     %% Position setup
@@ -90,13 +97,15 @@ function youbot_project()
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
     
+    cur_target = originPos(1:2);
+    
 
     % Voir comment l'enlever
-    [X, Y] = meshgrid(-5:0.25:5, -5.5:0.25:2.5);
+    [X, Y] = meshgrid(-5:0.2:5, -5.5:0.2:2.5);
     
     
     % Finite State Machine first state
-    fsm = 'computePath';
+    fsm = 'firstLook';
     
     %% Start
     disp('Enter loop')
@@ -123,45 +132,85 @@ function youbot_project()
         
         
         %% Mapping
-        % Put condition in front of block if not mapping
-       
-        % Get sensor infos
-        % Mean=23ms  /  Min=16ms  /  Max=114ms
-        [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer); % Mean=1ms
-        in = inpolygon(X, Y,...
-            [h.hokuyo1Pos(1), pts(1, :), h.hokuyo2Pos(1)],...
-            [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]); % Assez lent, voir pour l'enlever ou accélérer
+        if mapping
+            
+            % Get sensor infos
+            % Mean=23ms  /  Min=16ms  /  Max=114ms
+            % Look at insertRay or raycast to replace inpolygon (bc quite
+            % slow)
+            [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer); % Mean=1ms
+            in = inpolygon(X, Y,...
+                [h.hokuyo1Pos(1), pts(1, :), h.hokuyo2Pos(1)],...
+                [h.hokuyo1Pos(2), pts(2, :), h.hokuyo2Pos(2)]); % Assez lent, voir pour l'enlever ou accélérer
 
-        % Rotated points (to avoid using sine and cosine in code)
-        r_pts = rotationMatrix*pts;
+            % Rotated points (to avoid using sine and cosine in code)
+            r_pts = rotationMatrix*pts;
 
 
-        % Retrieve location information
-        % Mean=5.4E-4s  /  Min=3.2E-4s  /  Max=10.5ms
-        % See if x_pts and y_pts are needed
-        x_pts = youbotPos(1) - originPos(1) + X(in)*cos(youbotEuler(3)) - Y(in)*sin(youbotEuler(3));
-        x_contact = youbotPos(1) - originPos(1) + r_pts(1, contacts);
+            % Retrieve location information
+            % Mean=5.4E-4s  /  Min=3.2E-4s  /  Max=10.5ms
+            % See if x_pts and y_pts are needed
+            x_pts = youbotPos(1) - originPos(1) + X(in)*cos(youbotEuler(3)) - Y(in)*sin(youbotEuler(3));
+            x_contact = youbotPos(1) - originPos(1) + r_pts(1, contacts);
 
-        y_pts = youbotPos(2) - originPos(2) + Y(in)*cos(youbotEuler(3)) + X(in)*sin(youbotEuler(3));
-        y_contact = youbotPos(2) - originPos(2) + r_pts(2, contacts);
-
-        
-%         setOccupancy(map2, [25+x_pts 25+y_pts], 0.001); %Sauf si
-%         correctif possible, ne fonctionne pas correctement : remplace les
-%         obstacles par des non obstacles
-        setOccupancy(map, [25+x_contact' 25+y_contact'], 1);
+            y_pts = youbotPos(2) - originPos(2) + Y(in)*cos(youbotEuler(3)) + X(in)*sin(youbotEuler(3));
+            y_contact = youbotPos(2) - originPos(2) + r_pts(2, contacts);
+            
+            
+            % Update occupancy grid cases probabilities
+            updateOccupancy(map, [25+x_pts 25+y_pts], 0.4);
+            updateOccupancy(map, [25+x_contact' 25+y_contact'], 0.7);
+            
+        end
         
         
         %% Finite State Machine
-        if strcmp(fsm, 'computePath')
+        if strcmp(fsm, 'firstLook')
+            %% First look
+            % Enforce free and occupied probabilities in grid around youbot
+            % original pose
+            if nb_iter > 10
+                fsm = 'computePath';
+                disp('Compute path');
+            end
+        elseif strcmp(fsm, 'computePath')
             %% Compute path
             
-            
+            if repath
+                % Inflate map
+                imap = copy(map);
+                inflate(imap, robot_radius);
+                prm.Map = imap;
+                
+                startl = 25 + youbotPos(1:2) - originPos(1:2);
+                % Ajouter le choix de point al�atoire ici
+                endl = 25 + youbotPos(1:2) - originPos(1:2) + [0 -4];
+                
+                % While cannot find path, add nodes
+                while isempty(path)
+                    prm.NumNodes = prm.NumNodes + 10;
+                    prm.update();
+                    
+                    path = findpath(prm, double(startl), double(endl));
+                end
+                
+                % Pass path found to controller and targets_q
+                path = path - 25 + originPos(1:2);
+                controller.Waypoints = path;
+                for i=2:size(path, 1)
+                    targets_q.push(path(i,:));
+                end
+                cur_target = targets_q.front();
+                
+                % No need to repath yet
+                repath = false;
+            end
             
         end
                 
         
         %% Too close from obstacle condition
+        % May be useless now because point choice is only in known area
         % Check in front of the robot
 %         in_front = abs(pts(1,:)./pts(2,:)) < tan(front_angle*pi/180);
 %         d = sqrt(r_pts(1,contacts & in_front).^2 + r_pts(2,contacts & in_front).^2);
@@ -171,10 +220,24 @@ function youbot_project()
         
         
         %% Robot driving
+        % If encounter final goal
+        if ~isempty(path)
+            % In case we are on the goal
+            if norm(youbotPos(1:2) - path(end,:)) < 0.4
+                targets_q.clear();
+                cur_target = path(end,:);
+            end
+        end
+        % If close to intermediate path target
         if norm(youbotPos(1:2) - cur_target) < 0.4
-            if cur_target == path(end,:)
+            if targets_q.NumElements < 2
+                targets_q.clear();
+                
                 robotVel = [0 0];
                 rotateRightVel = 0;
+                
+                repath = true;
+                path = [];
             else
                 targets_q.pop_front();
                 cur_target = targets_q.front();
@@ -183,18 +246,19 @@ function youbot_project()
             [v, omega] = controller([youbotPos(1:2) transformAngleRange(youbotEuler(3), pi/2, [-pi pi])]);
             robotVel = [v 0];
             rotateRightVel = omega;
+            
+            % Get position in youbot coordinate system
+            % Use tranpose of rotationMatrix because multiplating with a line
+            % matrix instead of a column matrix
+            relPos = ([cur_target 0] - youbotPos)/rotationMatrix';
+            % Get angle between front of youbot and target
+            agl = atan(relPos(1)/relPos(2));
+            % Compose speed
+            targetRMatrix =...
+                [cos(agl)  sin(agl);...
+                 -sin(agl) cos(agl)];
+            robotVel = robotVel * targetRMatrix;
         end
-        % Get position in youbot coordinate system
-        % Use tranpose of rotationMatrix because multiplating with a line
-        % matrix instead of a column matrix
-        relPos = ([cur_target 0] - youbotPos)/rotationMatrix';
-        % Get angle between front of youbot and target
-        agl = atan(relPos(1)/relPos(2));
-        % Compose speed
-        targetRMatrix =...
-            [cos(agl)  sin(agl);...
-             -sin(agl) cos(agl)];
-        robotVel = robotVel * targetRMatrix;
         
         h = youbot_drive(vrep, h, -robotVel(1), -robotVel(2), -rotateRightVel);
         
@@ -213,7 +277,9 @@ function youbot_project()
             
             show(map);
             hold on;
-            plot(path(:,1)+25-originPos(1), path(:,2)+25-originPos(2),'k--d')
+            if ~isempty(path)
+                plot(path(:,1)+25-originPos(1), path(:,2)+25-originPos(2),'k--d')
+            end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
         end
