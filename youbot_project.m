@@ -13,19 +13,22 @@ function youbot_project()
     nb_iter_per_plot = 10;
     
     %%%%% Parameters not used yet (not necessarily necessary)
-    front_angle = 15; %Â°
+    front_angle = 15*pi/180; %Â°
     
     remap_distance = 1.5; %m
     remap = false;
     %%%%%
     
-    robot_radius = 0.3;
+    robot_radius = 0.4;
 
     targets_q = Queue();
     path = [];
     repath = true;
     
     mapping_fig = figure('Name', 'Mapping figure');
+    
+    
+    e = zeros([1 1000]);
     
 
     %% Initiate the connection to the simulator. 
@@ -72,7 +75,7 @@ function youbot_project()
     map = robotics.OccupancyGrid(50, 50, 5);
     [x, y] = meshgrid(linspace(-0.5, 0.5, 20));
     R = hypot(x, y);
-    setOccupancy(map, 25+[x(R < 2*robot_radius) y(R < 2*robot_radius)], 0);
+    setOccupancy(map, 25+[x(R < robot_radius) y(R < robot_radius)], 0);
     % Inflated copy of map
     imap = copy(map);
     
@@ -169,7 +172,7 @@ function youbot_project()
             %% First look
             % Enforce free and occupied probabilities in grid around youbot
             % original pose
-            if nb_iter > 10
+            if nb_iter == 10
                 fsm = 'computePath';
                 disp('Compute path');
             end
@@ -182,9 +185,44 @@ function youbot_project()
                 inflate(imap, robot_radius);
                 prm.Map = imap;
                 
+                free_cells = [];
+                front_angle = 5*pi/180;
+                
                 startl = 25 + youbotPos(1:2) - originPos(1:2);
                 % Ajouter le choix de point aléatoire ici
-                endl = 25 + youbotPos(1:2) - originPos(1:2) + [0 -4];
+%                 endl = 25 + youbotPos(1:2) - originPos(1:2) + [0 -4];
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                % Première idée pour choisir un point aléatoire
+                %  Conditions :
+                %   * Rayon compris entre 3 et 4 m
+                %   * Dans un cone de 15° (vérifier si ça fonctionne, on
+                %   sait jamais)
+                %
+                %  -> Regarder les cases libres dans cette zone
+                %  -> Ajouter une boucle si on trouve pas de case
+                %  respectant ces conditions
+                %  ->
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                [x, y] = meshgrid(-4:0.2:4, 4:-0.2:-4);
+                R = hypot(x, y);
+                
+                pos = ([x(1,:)' y(:,1)] - youbotPos(1:2))/rotationMatrix(1:2,1:2)';
+                T = transformAngleRange( atan2(x, y) + youbotEuler(3), pi, [-pi pi] );
+                
+                while isempty(free_cells)
+                    front_angle = front_angle + 10*pi/180;
+                    
+                    cells = 25+[x(R < 4 & R > 3 & abs(T) < 2*front_angle) y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
+                        + youbotPos(1:2) - originPos(1:2);
+                    
+                    ij = unique(world2grid(imap, cells), 'rows');
+                    occ = checkOccupancy(imap, ij, 'grid');
+                    ij_occ = [ij occ];
+                    
+                    free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
+                end
+                endl = grid2world( imap, free_cells(randi(length(free_cells)),:) );
+                
                 
                 % While cannot find path, add nodes
                 while isempty(path)
@@ -252,7 +290,8 @@ function youbot_project()
             % matrix instead of a column matrix
             relPos = ([cur_target 0] - youbotPos)/rotationMatrix';
             % Get angle between front of youbot and target
-            agl = atan(relPos(1)/relPos(2));
+            % A corriger
+            agl = transformAngleRange(atan(relPos(1)/relPos(2)) + youbotEuler(3), pi, [-pi pi]);
             % Compose speed
             targetRMatrix =...
                 [cos(agl)  sin(agl);...
@@ -260,7 +299,7 @@ function youbot_project()
             robotVel = robotVel * targetRMatrix;
         end
         
-        h = youbot_drive(vrep, h, -robotVel(1), -robotVel(2), -rotateRightVel);
+        h = youbot_drive(vrep, h, -abs(robotVel(1)), -robotVel(2)/2, -rotateRightVel);
         
         
         % Previous position and orientation
@@ -275,6 +314,7 @@ function youbot_project()
         if plot_data && mod(nb_iter, nb_iter_per_plot) == 0
             figure(mapping_fig);
             
+            subplot(2,1,1);
             show(map);
             hold on;
             if ~isempty(path)
@@ -282,6 +322,11 @@ function youbot_project()
             end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
+            
+            subplot(2,1,2);
+            if strcmp(fsm, 'computePath')
+                show(prm)
+            end
         end
         
         % Count number of times while is executed to save execution time on
@@ -291,9 +336,11 @@ function youbot_project()
         
         %% Calculation time control
         ellapsed = toc(start_loop);
+        e(find(e==0, 1, 'first')) = ellapsed;
         remaining = timestep - ellapsed;
         if remaining > 0
             pause(min(remaining, .01));
         end
+%         mean(e(e~=0));
     end
 end
