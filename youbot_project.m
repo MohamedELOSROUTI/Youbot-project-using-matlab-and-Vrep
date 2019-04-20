@@ -73,7 +73,7 @@ function youbot_project()
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
     mapSize = [50 50];
-    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 5);
+    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 8);
     [x, y] = meshgrid(linspace(-1, 1, 41));
     R = hypot(x, y);
     setOccupancy(map, 25+[x(R <= 2.5*robot_radius) y(R <= 2.5*robot_radius)], 0.1);
@@ -148,7 +148,7 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 5) + youbotPos_map(1:2), [0.3 0.5]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.05 0.52]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
@@ -195,7 +195,8 @@ function youbot_project()
                 while isempty(free_cells)
                     front_angle = front_angle + 5*pi/180;
                     
-                    cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
+                    cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) ...
+                             y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
                         + youbotPos_map(1:2);
                     
                     ij = unique(world2grid(imap, cells), 'rows');
@@ -204,7 +205,7 @@ function youbot_project()
                     
                     free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
                 end
-                endl = grid2world( imap, free_cells(randi(length(free_cells)),:) );
+                endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
                 
                 
                 % While cannot find path, add nodes
