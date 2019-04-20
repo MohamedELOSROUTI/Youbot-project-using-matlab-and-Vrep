@@ -10,7 +10,7 @@ function youbot_project()
     mapping = true;
     
     nb_iter = 0;
-    nb_iter_per_plot = 1;
+    nb_iter_per_plot = 5;
     
     %%%%% Parameters not used yet (not necessarily necessary)
     front_angle = 15*pi/180; %°
@@ -101,6 +101,7 @@ function youbot_project()
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
     
+    
     cur_target = originPos(1:2);
     
     
@@ -148,7 +149,7 @@ function youbot_project()
             
             % Update occupancy grid cases probabilities
             insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 5) + youbotPos_map(1:2), [0.3 0.5]);
-            updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 0.9);
+            updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
         
@@ -243,13 +244,13 @@ function youbot_project()
         % If encounter final goal
         if ~isempty(path)
             % In case we are on the goal
-            if norm(youbotPos(1:2) - path(end,:)) < 0.3
+            if norm(youbotPos(1:2) - path(end,:)) < 0.2
                 targets_q.clear();
                 cur_target = path(end,:);
             end
         end
         % If close to intermediate path target
-        if norm(youbotPos(1:2) - cur_target) < 0.3
+        if norm(youbotPos(1:2) - cur_target) < 0.2
             if targets_q.NumElements < 2
                 targets_q.clear();
                 
@@ -270,10 +271,10 @@ function youbot_project()
             % Get position in youbot coordinate system
             % Use tranpose of rotationMatrix because multiplating with a line
             % matrix instead of a column matrix
-            relPos = ([cur_target 0] - youbotPos)/rotationMatrix';
+            relPos = -([cur_target 0] - youbotPos)/rotationMatrix';
             % Get angle between front of youbot and target
             % A corriger
-            agl = transformAngleRange(atan(relPos(1)/relPos(2)) + youbotEuler(3), pi, [-pi pi]);
+            agl = atan2(-relPos(1), relPos(2));
             % Compose speed
             targetRMatrix =...
                 [cos(agl)  sin(agl);...
@@ -281,7 +282,7 @@ function youbot_project()
             robotVel = robotVel * targetRMatrix;
         end
         
-        h = youbot_drive(vrep, h, -abs(robotVel(1)), robotVel(2)/2, -rotateRightVel);
+        h = youbot_drive(vrep, h, -robotVel(1), robotVel(2), -rotateRightVel);
         
         
         % Previous position and orientation
