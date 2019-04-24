@@ -12,23 +12,19 @@ function youbot_project()
     nb_iter = 0;
     nb_iter_per_plot = 5;
     
-    %%%%% Parameters not used yet (not necessarily necessary)
-    front_angle = 15*pi/180; %°
+    front_angle = 5*pi/180; %degrees
+    robot_radius = 0.3;
     
-    remap_distance = 1.5; %m
-    remap = false;
-    %%%%%
-    
-    robot_radius = 0.4;
+    occpct = zeros(1,5);
+    occpct_i = 0;
 
     targets_q = Queue();
     path = [];
     repath = true;
     
+    
     mapping_fig = figure('Name', 'Mapping figure');
-    
-    
-    e = zeros([1 1000]);
+    set(gcf, 'position', [10 10 980 520]);
     
 
     %% Initiate the connection to the simulator. 
@@ -148,7 +144,7 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.05 0.52]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.2 0.5]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
@@ -209,11 +205,16 @@ function youbot_project()
                 
                 
                 % While cannot find path, add nodes
+                initialNumNodes = prm.NumNodes;
                 while isempty(path)
-                    prm.NumNodes = prm.NumNodes + 10;
+                    prm.NumNodes = prm.NumNodes + 5;
                     prm.update();
                     
                     path = findpath(prm, double(startl), double(endl));
+                    if prm.NumNodes > initialNumNodes+50
+                        endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
+                        prm.NumNodes = initialNumNodes;
+                    end
                 end
                 
                 % Pass path found to controller and targets_q
@@ -227,6 +228,8 @@ function youbot_project()
                 % No need to repath yet
                 repath = false;
             end
+            
+        elseif strcmp(fsm, 'end')
             
         end
                 
@@ -260,6 +263,24 @@ function youbot_project()
                 
                 repath = true;
                 path = [];
+            
+                % Check unknown map occupancy
+                % If occupancy is mostly the same 5 times in a row, there's
+                % no more to discover in the map => go next
+                if strcmp(fsm, 'computePath')
+                    mat = occupancyMatrix(map, 'ternary');
+                    occpct(occpct_i+1) = (1 - length(find(mat == -1))/( size(mat,1) * size(mat,2) ))*100;
+                    
+                    if all( abs(occpct - mean(occpct)) < 0.01 ) && ~all(occpct == 0)
+                        disp('End');
+                        
+                        repath = false;
+                        mapping = false;
+                        fsm = 'end';
+                    end
+                    
+                    occpct_i = mod(occpct_i+1, size(occpct,2));
+                end
             else
                 targets_q.pop_front();
                 cur_target = targets_q.front();
@@ -321,7 +342,6 @@ function youbot_project()
         %% Calculation time control
         ellapsed = toc(start_loop);
         remaining = timestep - ellapsed;
-        e(find(e==0, 1, 'first')) = ellapsed;
         if remaining > 0
             pause(min(remaining, .01));
         end
