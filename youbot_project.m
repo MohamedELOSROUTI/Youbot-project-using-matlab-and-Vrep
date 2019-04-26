@@ -97,7 +97,14 @@ function youbot_project()
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
     
+    %%%%%%%%%%%%%%%%%%%%%%%%%%% Modif's %%%%%%%%%%%%%%%%%%%%%%%
+    youbotPos_map = [mapSize/2, 0];
+    ij = world2grid(imap, youbotPos_map(1:2));
+    occ = checkOccupancy(imap, ij, 'grid');
+    ij_occ = [ij occ];
     
+    passedPoints = ij_occ( ij_occ(:,3) == 0 ,1:2);
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     cur_target = originPos(1:2);
     
     
@@ -201,9 +208,15 @@ function youbot_project()
                     
                     free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
                 end
+                %%%%%%%%%%%%%%%%% Modif's %%%%%%%%%%%%%%%%%%%%
+                % If the closest distance between endl and all PassedPoints
+                % is less than 3 (for example) compute new endl
+                
                 endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
-                
-                
+                while min(vecnorm(passedPoints-endl,2,2)) < 4
+                    endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
+                end
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 % While cannot find path, add nodes
                 initialNumNodes = prm.NumNodes;
                 while isempty(path)
@@ -304,6 +317,13 @@ function youbot_project()
             robotVel = robotVel * targetRMatrix;
         end
         
+        %%%%%%%%%%%%%%%%%%%%%%%%% modifs %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        
+        ij = world2grid(imap, youbotPos_map(1:2));
+        occ = checkOccupancy(imap, ij, 'grid');
+        ij_occ = [ij occ];
+        passedPoints = [passedPoints ; ij_occ( ij_occ(:,3) == 0 ,1:2)];
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         h = youbot_drive(vrep, h, -robotVel(1), robotVel(2), -rotateRightVel);
         
         
