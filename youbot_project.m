@@ -14,6 +14,8 @@ function youbot_project()
     
     front_angle = 5*pi/180; %degrees
     robot_radius = 0.3;
+    prevPMaxRange = 5;
+    passedPoints = [];
     
     occpct = zeros(1,5);
     occpct_i = 0;
@@ -84,7 +86,7 @@ function youbot_project()
     
     prm = robotics.PRM;
     prm.Map = imap;
-    prm.NumNodes = 50;
+    prm.NumNodes = 70;
     prm.ConnectionDistance = 5;
     
 
@@ -97,14 +99,7 @@ function youbot_project()
     vrchk(vrep, res, true);
     prevOrientation = originEuler(3);
     
-    %%%%%%%%%%%%%%%%%%%%%%%%%%% Modif's %%%%%%%%%%%%%%%%%%%%%%%
-    youbotPos_map = [mapSize/2, 0];
-    ij = world2grid(imap, youbotPos_map(1:2));
-    occ = checkOccupancy(imap, ij, 'grid');
-    ij_occ = [ij occ];
     
-    passedPoints = ij_occ( ij_occ(:,3) == 0 ,1:2);
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     cur_target = originPos(1:2);
     
     
@@ -191,9 +186,23 @@ function youbot_project()
                 %  respectant ces conditions
                 %  ->
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                norms = vectnorm(youbotPos_map(1:2) - passedPoints, 2);
+                closePP = youbotPos_map(1:2) - passedPoints( 0.1 < norms & norms < prevPMaxRange ,:) ;
+                if ~isempty(closePP)
+                    agls = atan2(closePP(:,1), -closePP(:,2));
+                    norms = norms(0.1 < norms & norms < prevPMaxRange);
+
+                    wgt = (prevPMaxRange - norms)/prevPMaxRange;
+                    sumprod_agls = transformAngleRange( meanAngle(agls, wgt), 0, [-pi pi] );
+                else 
+                    sumprod_agls = youbotEuler(3);
+                end
+                sumprod_agls*180/pi
+                
+                
                 [x, y] = meshgrid(-4:0.2:4, 4:-0.2:-4);
                 R = hypot(x, y);
-                T = transformAngleRange( atan2(x, -y), -youbotEuler(3), [-pi pi] );
+                T = transformAngleRange( atan2(x, -y), -sumprod_agls, [-pi pi] );
                 
                 while isempty(free_cells)
                     front_angle = front_angle + 5*pi/180;
@@ -208,15 +217,8 @@ function youbot_project()
                     
                     free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
                 end
-                %%%%%%%%%%%%%%%%% Modif's %%%%%%%%%%%%%%%%%%%%
-                % If the closest distance between endl and all PassedPoints
-                % is less than 3 (for example) compute new endl
-                
                 endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
-                while min(vecnorm(passedPoints-endl,2,2)) < 4
-                    endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
-                end
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
                 % While cannot find path, add nodes
                 initialNumNodes = prm.NumNodes;
                 while isempty(path)
@@ -245,16 +247,6 @@ function youbot_project()
         elseif strcmp(fsm, 'end')
             
         end
-                
-        
-        %% Too close from obstacle condition
-        % May be useless now because point choice is only in known area
-        % Check in front of the robot
-%         in_front = abs(pts(1,:)./pts(2,:)) < tan(front_angle*pi/180);
-%         d = sqrt(r_pts(1,contacts & in_front).^2 + r_pts(2,contacts & in_front).^2);
-%         if min(d) < remap_distance
-%             fsm = 'computePath';
-%         end
         
         
         %% Robot driving
@@ -277,10 +269,13 @@ function youbot_project()
                 repath = true;
                 path = [];
             
-                % Check unknown map occupancy
+                % Add passed point and check unknown map occupancy
                 % If occupancy is mostly the same 5 times in a row, there's
                 % no more to discover in the map => go next
                 if strcmp(fsm, 'computePath')
+                    passedPoints = [passedPoints ; youbotPos_map(1:2)];
+                    
+                    
                     mat = occupancyMatrix(map, 'ternary');
                     occpct(occpct_i+1) = (1 - length(find(mat == -1))/( size(mat,1) * size(mat,2) ))*100;
                     
@@ -317,13 +312,7 @@ function youbot_project()
             robotVel = robotVel * targetRMatrix;
         end
         
-        %%%%%%%%%%%%%%%%%%%%%%%%% modifs %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         
-        ij = world2grid(imap, youbotPos_map(1:2));
-        occ = checkOccupancy(imap, ij, 'grid');
-        ij_occ = [ij occ];
-        passedPoints = [passedPoints ; ij_occ( ij_occ(:,3) == 0 ,1:2)];
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         h = youbot_drive(vrep, h, -robotVel(1), robotVel(2), -rotateRightVel);
         
         
