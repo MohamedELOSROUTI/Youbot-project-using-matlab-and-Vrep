@@ -5,13 +5,14 @@ function youbot_project()
     
     
     %% Parameters
-    use_getPosition = true;
+    use_getPosition = false;
     plot_data = true;
-    mapping = true;
     
+    % Plot and loop params
     nb_iter = 0;
     nb_iter_per_plot = 5;
     
+    % Point selection params
     front_angle = 5*pi/180; %degrees
     robot_radius = 0.3;
     prevPMaxRange = 5;
@@ -19,8 +20,12 @@ function youbot_project()
     closePP_map = [];
     intsecPts = [];
     
+    % Mapping and nav params
     occpct = zeros(1,5);
     occpct_i = 0;
+    mapping = true;
+    
+    odom = 0;
 
     targets_q = Queue();
     path = [];
@@ -69,7 +74,7 @@ function youbot_project()
     prevPosition = 0; % Previous distance to goal (easy way to have a condition on the robot's speed).
     
     
-    % Youbot's map
+    %% Youbot's map and controller
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
     mapSize = [50 50];
@@ -91,15 +96,36 @@ function youbot_project()
     prm.NumNodes = 70;
     prm.ConnectionDistance = 5;
     
+    
+    %% Youbot particle filter
+    % Particle filter params
+    odometryModel = robotics.OdometryMotionModel;
+    
+    rangeFinderModel = robotics.LikelihoodFieldSensorModel;
+    rangeFinderModel.SensorLimits = [0.2 5];
+    rangeFinderModel.Map = map;
+    
+    mcl = robotics.MonteCarloLocalization;
+    mcl.MotionModel = odometryModel;
+    mcl.SensorModel = rangeFinderModel;
+    mcl.InitialPose = [mapSize/2 -pi/2];
+    
 
     %% Position setup
-    % Youbot initial position
-    [res, originPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
-    vrchk(vrep, res, true);
-    prevPosition = originPos(1:2);
-    [res, originEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
-    vrchk(vrep, res, true);
-    prevOrientation = originEuler(3);
+    if use_getPosition
+        % Youbot initial position
+        [res, originPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+        vrchk(vrep, res, true);
+        prevPosition = originPos(1:2);
+        [res, originEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+        vrchk(vrep, res, true);
+        prevOrientation = originEuler(3);
+    else
+        originPos = [0 0 0];
+        originEuler = [0 0 0];
+        youbotPos = originPos;
+        youbotEuler = originEuler;
+    end
     
     
     cur_target = originPos(1:2);
@@ -118,12 +144,42 @@ function youbot_project()
         end
         
         
-        % Get the position and the orientation of the robot.
-        % Mean=2.7E-4s  /  Min=1.8E-4s  /  Max=9.5ms
-        [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
-        vrchk(vrep, res, true);
-        [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
-        vrchk(vrep, res, true);
+        %% Position and orientation
+        % Get sensor infos
+        % Mean=23ms  /  Min=16ms  /  Max=114ms
+        % Look at insertRay or raycast to replace inpolygon (bc quite
+        % slow)
+        [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
+        
+        
+        % If we want to use youbot's GPS or want to estimate it's state
+        if use_getPosition
+            % Get the position and the orientation of the robot.
+            % Mean=2.7E-4s  /  Min=1.8E-4s  /  Max=9.5ms
+            [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res, true);
+            [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res, true);
+        else
+%             amcl.Map = map;
+            
+            ranges = hypot(pts(1,contacts), pts(2,contacts));
+            angles = transformAngleRange(youbotEuler(3)-atan2(pts(2,contacts), pts(1,contacts)), pi/2, [-pi pi]);
+            
+            delta = 0;
+            if ~exist('odom')
+                delta = toc(odom)/1000;
+            end
+            pose = [ youbotPos(1:2)+mapSize/2 transformAngleRange(youbotEuler(3), -pi/2, [-pi pi]) ]...
+                + [-robotVel(1) robotVel(2) -rotateRightVel]*delta ;
+            [isUp, estimatedPose, estimatedCovariance] = mcl(double(pose), double(ranges), double(angles));
+            abs(estimatedPose(1:2) - (youbotPos(1:2)+mapSize/2))
+            
+            youbotPos(1:2) = estimatedPose(1:2) - mapSize/2;
+            youbotEuler(3) = estimatedPose(3);
+            
+            odom = tic;
+        end
         
         % Youbot rotation matrix (to put local coordinates in global axes)
         rotationMatrix = ...
@@ -137,13 +193,6 @@ function youbot_project()
         
         %% Mapping
         if mapping
-            
-            % Get sensor infos
-            % Mean=23ms  /  Min=16ms  /  Max=114ms
-            % Look at insertRay or raycast to replace inpolygon (bc quite
-            % slow)
-            [pts, contacts] = youbot_hokuyo(vrep, h, vrep.simx_opmode_buffer);
-
             % Rotated points (to avoid using sine and cosine in code)
             r_pts = rotationMatrix*pts;
             
