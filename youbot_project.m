@@ -16,6 +16,8 @@ function youbot_project()
     robot_radius = 0.3;
     prevPMaxRange = 5;
     passedPoints = [];
+    closePP_map = [];
+    intsecPts = [];
     
     occpct = zeros(1,5);
     occpct_i = 0;
@@ -187,12 +189,20 @@ function youbot_project()
                 %  ->
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 norms = vectnorm(youbotPos_map(1:2) - passedPoints, 2);
-                closePP = youbotPos_map(1:2) - passedPoints( 0.1 < norms & norms < prevPMaxRange ,:) ;
+                closePP = youbotPos_map(1:2) - passedPoints( 0.1 < norms & norms < prevPMaxRange ,:);
+                closePP_map = youbotPos_map(1:2) - closePP;
                 if ~isempty(closePP)
                     agls = atan2(closePP(:,1), -closePP(:,2));
                     norms = norms(0.1 < norms & norms < prevPMaxRange);
 
                     wgt = (prevPMaxRange - norms)/prevPMaxRange;
+                    
+                    % Get if prev point is behind a wall
+                    % Vérifier si ça fonctionne
+                    intsecPts = rayIntersection(map, [youbotPos_map(1:2) 0], agls', prevPMaxRange+0.1, 0.8);
+                    wgt(~isnan(intsecPts(:,1))) = wgt(~isnan(intsecPts(:,1)))/2;
+                    intsecPts(isnan(intsecPts)) = closePP(isnan(intsecPts));
+                    
                     sumprod_agls = transformAngleRange( meanAngle(agls, wgt), 0, [-pi pi] );
                 else 
                     sumprod_agls = youbotEuler(3);
@@ -332,7 +342,10 @@ function youbot_project()
             show(map);
             hold on;
             if ~isempty(path)
-                plot(path(:,1)+25-originPos(1), path(:,2)+25-originPos(2),'k--d')
+                plot(path(:,1)+mapSize(1)/2-originPos(1), path(:,2)+mapSize(2)/2-originPos(2),'k--d')
+                scatter(closePP_map(:,1), closePP_map(:,2), 'b*');
+                % Maybe add rayIntersect info and draw line between youbot
+                % and points
             end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
