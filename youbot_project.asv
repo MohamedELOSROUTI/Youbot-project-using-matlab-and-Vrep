@@ -73,7 +73,7 @@ function youbot_project()
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
     mapSize = [50 50];
-    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 8);
+    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 16);
     [x, y] = meshgrid(linspace(-1, 1, 41));
     R = hypot(x, y);
     setOccupancy(map, 25+[x(R <= 2.5*robot_radius) y(R <= 2.5*robot_radius)], 0.1);
@@ -148,7 +148,7 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.2 0.5]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 5) + youbotPos_map(1:2), [0.2 0.5]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
@@ -253,6 +253,7 @@ function youbot_project()
                 % No need to repath yet
                 repath = false;
             end
+            
         elseif strcmp(fsm, 'locateTablesBaskets')
             map_ = occupancyMatrix(map, 'ternary');
             imap_ = occupancyMatrix(imap, 'ternary');
@@ -273,7 +274,7 @@ function youbot_project()
             end
             imshow(map_)
             viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
-        
+            
         elseif strcmp(fsm, 'end')
             
         end
@@ -310,7 +311,7 @@ function youbot_project()
                     occpct(occpct_i+1) = (1 - length(find(mat == -1))/( size(mat,1) * size(mat,2) ))*100;
                     
                     if all( abs(occpct - mean(occpct)) < 0.01 ) && ~all(occpct == 0)
-                        disp('End');
+                        disp('End mapping');
                         
                         repath = false;
                         mapping = false;
@@ -364,6 +365,7 @@ function youbot_project()
             if ~isempty(path)
                 plot(path(:,1)+mapSize(1)/2-originPos(1), path(:,2)+mapSize(2)/2-originPos(2),'k--d')
                 scatter(closePP_map(:,1), closePP_map(:,2), 'b*');
+           
                 % Maybe add rayIntersect info and draw line between youbot
                 % and points
             end
@@ -372,7 +374,6 @@ function youbot_project()
             %% if we are at state 'locateTablesBaskets' plot a cross on them
             if strcmp(fsm, 'locateTablesBaskets')
                 scatter(centersStrong(:,1), centersStrong(:,2),'b*');
-                fsm = 'end';
             end
             subplot(1,2,2);
             if strcmp(fsm, 'computePath') && ~isempty(path)
