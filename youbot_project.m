@@ -73,7 +73,7 @@ function youbot_project()
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
     mapSize = [50 50];
-    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 8);
+    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 16);
     [x, y] = meshgrid(linspace(-1, 1, 41));
     R = hypot(x, y);
     setOccupancy(map, 25+[x(R <= 2.5*robot_radius) y(R <= 2.5*robot_radius)], 0.1);
@@ -148,7 +148,7 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.2 0.5]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 5) + youbotPos_map(1:2), [0.2 0.5]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
