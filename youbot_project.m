@@ -5,15 +5,14 @@ function youbot_project()
     
     
     %% Parameters
-    use_getPosition = true;
     plot_data = true;
     mapping = true;
     
     nb_iter = 0;
-    nb_iter_per_plot = 5;
+    nb_iter_per_plot = 10;
     
     front_angle = 5*pi/180; %degrees
-    robot_radius = 0.3;
+    robot_radius = 0.35;
     prevPMaxRange = 5;
     passedPoints = [];
     closePP_map = [];
@@ -62,7 +61,7 @@ function youbot_project()
     timestep = .05;
     % Parameters for controlling the youBot's wheels: at each iteration, those values will be set for the wheels. 
     % They are adapted at each iteration by the code. 
-    % Move straight ahead. 
+    % Move straight ahead.
     robotVel = [0,0]; % Go sideways. 
     rotateRightVel = 0; % Rotate. 
     prevOrientation = 0; % Previous angle to goal (easy way to have a condition on the robot's angular speed). 
@@ -73,7 +72,8 @@ function youbot_project()
     % Replaced custom OccupancyMap with matlab OccupancyGrid
     % Removed Dstar
     mapSize = [50 50];
-    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 16);
+    map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 8);
+    hires_map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 40);
     [x, y] = meshgrid(linspace(-1, 1, 41));
     R = hypot(x, y);
     setOccupancy(map, 25+[x(R <= 2.5*robot_radius) y(R <= 2.5*robot_radius)], 0.1);
@@ -148,8 +148,11 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 5) + youbotPos_map(1:2), [0.2 0.5]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
+            % Update occupancy in the high resolution map
+            insertRay(hires_map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
+            updateOccupancy(hires_map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
         
@@ -176,18 +179,8 @@ function youbot_project()
                 front_angle = 5*pi/180;
                 
                 startl = youbotPos_map(1:2);
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                % Première idée pour choisir un point aléatoire
-                %  Conditions :
-                %   * Rayon compris entre 3 et 4 m
-                %   * Dans un cone de 15° (vérifier si ça fonctionne, on
-                %   sait jamais)
-                %
-                %  -> Regarder les cases libres dans cette zone
-                %  -> Ajouter une boucle si on trouve pas de case
-                %  respectant ces conditions
-                %  ->
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
+                
                 norms = vectnorm(youbotPos_map(1:2) - passedPoints, 2);
                 closePP = youbotPos_map(1:2) - passedPoints( 0.1 < norms & norms < prevPMaxRange ,:);
                 closePP_map = youbotPos_map(1:2) - closePP;
@@ -207,7 +200,6 @@ function youbot_project()
                 else 
                     sumprod_agls = youbotEuler(3);
                 end
-                sumprod_agls*180/pi
                 
                 
                 [x, y] = meshgrid(-4:0.2:4, 4:-0.2:-4);
@@ -235,12 +227,23 @@ function youbot_project()
                     prm.NumNodes = prm.NumNodes + 5;
                     prm.update();
                     
-                    path = findpath(prm, double(startl), double(endl));
-                    if prm.NumNodes > initialNumNodes+50
+                    try 
+                        path = findpath(prm, double(startl), double(endl));
+                    catch
+                        disp("Error handled")
+%                         bckp_pt = rotationMatrix*[0;0;0] + youbotPos';
+                        bckp_pt = (rotationMatrix*[0;0.5;0])' + youbotPos - originPos + [mapSize/2 0];
+                        path = [startl;bckp_pt(1:2)];
+                        
+                        break
+                    end
+                    
+                    if prm.NumNodes > initialNumNodes+20
                         endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
                         prm.NumNodes = initialNumNodes;
                     end
                 end
+                
                 
                 % Pass path found to controller and targets_q
                 path = path - 25 + originPos(1:2);
@@ -254,26 +257,24 @@ function youbot_project()
                 repath = false;
             end
         elseif strcmp(fsm, 'locateTablesBaskets')
-            map_ = occupancyMatrix(map, 'ternary');
-            imap_ = occupancyMatrix(imap, 'ternary');
-            figure(2)
+            inflate(hires_map, robot_radius)
+            map_ = occupancyMatrix(hires_map, 'ternary');
             
-            [centers, radii, metric] = imfindcircles(imap_, [10 13], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
-            %% Choose the most significant circles metric lim = 0.05 => find the basket - tables
+            [centers, radii, metric] = imfindcircles(map_, [30 40], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
             % we have to find a way to distinguish them now
-            centersStrong = centers(metric>0.05,:);
-            radiiStrong = radii(metric>0.05);
-            metricStrong = metric(metric>0.05);
-            idx = sub2ind(size(imap_),centersStrong(:,1),centersStrong(:,2));
-            idx = int64(idx);
-            % give a particular number (10-16) to each tables and baskets
-            % in order to localize them easily in the future
-            for i = 10:16
-                map_(idx(i-9)) = i;
-            end
+            centersStrong = centers(1:7,:);
+            radiiStrong = radii(1:7);
+            metricStrong = metric(1:7);
+            
+            subplot(1,2,2);
             imshow(map_)
             viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
-        
+            fsm = 'end';
+            
+        elseif strcmp(fsm, 'stop')
+            if nb_iter > stop_iter + 20
+                fsm = 'locateTablesBaskets';
+            end
         elseif strcmp(fsm, 'end')
             
         end
@@ -309,12 +310,16 @@ function youbot_project()
                     mat = occupancyMatrix(map, 'ternary');
                     occpct(occpct_i+1) = (1 - length(find(mat == -1))/( size(mat,1) * size(mat,2) ))*100;
                     
+                    % Check if occupancy percentage changed a lot or not in
+                    % the last 5 displacements (prm from start to end)
                     if all( abs(occpct - mean(occpct)) < 0.01 ) && ~all(occpct == 0)
                         disp('End');
                         
                         repath = false;
                         mapping = false;
-                        fsm = 'locateTablesBaskets';
+                        
+                        fsm = 'stop';
+                        stop_iter = nb_iter;
                     end
                     
                     occpct_i = mod(occpct_i+1, size(occpct,2));
@@ -369,11 +374,7 @@ function youbot_project()
             end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
-            %% if we are at state 'locateTablesBaskets' plot a cross on them
-            if strcmp(fsm, 'locateTablesBaskets')
-                scatter(centersStrong(:,1), centersStrong(:,2),'b*');
-                fsm = 'end';
-            end
+            
             subplot(1,2,2);
             if strcmp(fsm, 'computePath') && ~isempty(path)
                 show(prm)
@@ -389,7 +390,7 @@ function youbot_project()
         ellapsed = toc(start_loop);
         remaining = timestep - ellapsed;
         if remaining > 0
-            pause(min(remaining, .01));
+            pause(max(remaining, .01));
         end
     end
 end
