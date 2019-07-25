@@ -1,0 +1,358 @@
+function grasping()
+    timestep = .05;
+
+    run('C:\trs\matlab\startup_robot.m')
+    disp('Program started');
+    % Use the following line if you had to recompile remoteApi
+    %vrep = remApi('remoteApi', 'extApi.h');
+    vrep = remApi('remoteApi');
+    vrep.simxFinish(-1);
+    id = vrep.simxStart('127.0.0.1', 19997, true, true, 2000, 5);
+    
+    % If you get an error like: 
+    %   Remote API function call returned with error code: 64. Explanation: simxStart was not yet called.
+    % Make sure your code is within a function! You cannot call V-REP from a script. 
+
+    if id < 0
+        disp('Failed connecting to remote API server. Exiting.');
+        vrep.delete();
+        return;
+    end
+    fprintf('Connection %d to remote API server open.\n', id);
+    
+    % Make sure we close the connection whenever the script is interrupted.
+    cleanupObj = onCleanup(@() cleanup_vrep(vrep, id));
+    
+    % This will only work in "continuous remote API server service". 
+    % See http://www.v-rep.eu/helpFiles/en/remoteApiServerSide.htm
+    vrep.simxStartSimulation(id, vrep.simx_opmode_oneshot_wait);
+
+    % Retrieve all handles, and stream arm and wheel joints, the robot's pose, the Hokuyo, and the arm tip pose.
+    % The tip corresponds to the point between the two tongs of the gripper (for more details, see later or in the 
+    % file focused/youbot_arm.m). 
+    h = youbot_init(vrep, id);
+    h = youbot_hokuyo_init(vrep, h);
+    [res, armRefToXyzSensor] = vrep.simxGetObjectPosition(id, h.xyzSensor, h.armRef, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep, res);
+    [res, youbotToArmRef] = vrep.simxGetObjectPosition(id, h.armRef, h.ref, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep, res);
+    AngleSensor = pi/180*linspace(120,220,10);
+    rotationx = [1,0,0,0;...
+                0,cosd(90),-sind(90),0;...
+                0,sind(90), cosd(90), 0;...
+                0,0,0,1];
+    rotationz1 = [cosd(90),-sind(90),0,0;...
+                sind(90),cosd(90),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+
+    
+    translation = [1,0,0,armRefToXyzSensor(1);...
+                   0,1,0,armRefToXyzSensor(2);...
+                   0,0,1,armRefToXyzSensor(3);...
+                   0,0,0,1];
+    Roty = [cosd(-90),0,sind(-90),0;...
+            0,1,0,0;...
+            -sind(-90),0,cosd(-90),0;...
+            0,0,0,1];
+    Rotz = [cosd(90),-sind(90),0,0;...
+                sind(90),cosd(90),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+    trans = [1,0,0,youbotToArmRef(1);...
+             0,1,0,youbotToArmRef(2);...
+             0,0,1,youbotToArmRef(3);...
+             0,0,0,1];
+         
+    RotyRefToYoubot = [cosd(-90),0,sind(-90),0;...
+            0,1,0,0;...
+            -sind(-90),0,cosd(-90),0;...
+            0,0,0,1];
+        
+    RotzRefToYoubot = [cosd(-90),-sind(-90),0,0;...
+                sind(-90),cosd(-90),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+    RotzRefToXYZ = [cosd(180),-sind(180),0,0;...
+                sind(180),cosd(180),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+    RotxRefToXYZ = [1,0,0,0;...
+                0,cosd(-90),-sind(-90),0;...
+                0,sind(-90), cosd(-90), 0;...
+                0,0,0,1];
+    
+    table = [-3,-6];
+    
+    % Let a few cycles pass to make sure there's a value waiting for us next time we try to get a joint angle or 
+    % the robot pose with the simx_opmode_buffer option.
+    pause(.2);
+    
+% Minimum and maximum angles for all joints. Only useful to implement custom IK. 
+    armJointRanges = [-2.9496064186096, 2.9496064186096;
+                      -1.5707963705063, 1.308996796608;
+                      -2.2863812446594, 2.2863812446594;
+                      -1.7802357673645, 1.7802357673645;
+                      -1.5707963705063, 1.5707963705063 ];
+
+    % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
+    %startingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
+    startingJoints = [0, 30.91 * pi / 180, 30.42 * pi / 180, 72.68 * pi / 180, 0];
+
+    %% Preset values for the demo. 
+    disp('Starting robot');
+    
+    % Define the preset pickup pose for this demo. 
+%     for i = 1:5
+%         res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), startingJoints(i), vrep.simx_opmode_oneshot);
+%         vrchk(vrep, res, true);
+%     end
+    
+    res = vrep.simxPauseCommunication(id, false); 
+    vrchk(vrep, res);
+
+    % Make sure everything is settled before we start. 
+    pause(2);
+
+    % Retrieve the position of the gripper. 
+    [res, homeGripperPosition] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef, vrep.simx_opmode_buffer);
+    vrchk(vrep, res, true);
+    i=1;
+    while true
+        
+        if vrep.simxGetConnectionId(id) == -1
+            error('Lost connection to remote API.');
+        end
+
+        %AngleSensor = 3*pi/4;
+        rotationz2 = [cos(AngleSensor(i)),-sin(AngleSensor(i)),0,0;...
+                sin(AngleSensor(i)),cos(AngleSensor(i)),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+
+        takePicture(id,vrep,h,AngleSensor(i));
+        pts = scanXYZ(id,vrep,h, AngleSensor(i), pi/15);
+        plot3(pts(1, :), pts(3, :), pts(2, :), '*');
+        
+        [center, Found] = detectCylinder(pts);
+        % NewCenter is armRef axis
+            NewCenter = [center(1);center(2);center(3);1];
+            NewCenter = translation*rotationz2*rotationz1*rotationx*NewCenter;
+            NewCenter = [NewCenter(1),NewCenter(2),NewCenter(3)];
+            
+           
+           if Found == 0
+               stateObject = 'not found';
+           elseif norm(NewCenter) > 0.51
+               stateObject = 'too far';
+           else
+               stateObject = 'reachable';
+           end
+           
+        if strcmp(stateObject,'reachable')
+            disp('Cylinder founded');
+
+            % Activate IK 
+        
+            res = vrep.simxSetIntegerSignal(id, 'km_mode', 2, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep, res, true);
+        
+            % move the tip of the arm 
+            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 0.5*[NewCenter(1),NewCenter(2),2*NewCenter(3)], vrep.simx_opmode_oneshot_wait);
+            pause(3);
+            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, NewCenter, vrep.simx_opmode_oneshot_wait);
+            pause(3)
+            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 1.02*NewCenter, vrep.simx_opmode_oneshot_wait);
+
+            vrchk(vrep, res, true);
+            disp('Moving gripper ...');
+            pause(2);
+            disp('Grasping ...');
+            res = vrep.simxSetIntegerSignal(id, 'gripper_open', 0, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
+            pause(5);
+            res = vrep.simxSetIntegerSignal(id, 'km_mode', 0, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
+            for i = 1:5
+                res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), startingJoints(i), vrep.simx_opmode_oneshot);
+                vrchk(vrep, res, true);
+            end
+            pause(5);
+            res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
+            
+            break;
+        elseif strcmp(stateObject,'too far')
+                disp('Cylinder too far');
+                
+                % NewCenter in youbot axis 
+            NewCenterYoubot = trans*Roty*Rotz*[NewCenter,1]';
+            % NewCenterYoubot in ref axis
+            [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);
+            [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);
+
+            RotzRefToYoubotEuler = [cosd(youbotEuler(3)),-sind(youbotEuler(3)),0,0;...
+                sind(youbotEuler(3)),cosd(youbotEuler(3)),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+            transRefYoubot = [1,0,0,youbotPos(1);...
+             0,1,0,youbotPos(2);...
+             0,0,1,youbotPos(3);...
+             0,0,0,1];
+         
+            [res,xyzSensor] = vrep.simxGetObjectPosition(id, h.xyzSensor, -1, vrep.simx_opmode_oneshot_wait);
+            transRefxyzSensor = [1,0,0,xyzSensor(1);...
+             0,1,0,xyzSensor(2);...
+             0,0,1,xyzSensor(3);...
+             0,0,0,1];
+             vrchk(vrep, res);
+
+
+            NewCenterRef = transRefxyzSensor*...
+                            rotationz2*...
+                            RotxRefToXYZ*...
+                            RotzRefToXYZ*...
+                            [center(1);center(2);center(3);1];
+            tableYoubot = youbotPos(1:2) - table;
+            N = 50;
+            aroundTablePointsPos = tableYoubot(1:2)';
+            aroundTablePointsNeg = aroundTablePointsPos;
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            RotPos = [cosd(360/N), -sind(360/N);...
+                   sind(360/N), cosd(360/N)];
+            RotNeg = [cosd(-360/N), -sind(-360/N);...
+                   sind(-360/N), cosd(-360/N)];
+               for j = 2:N
+                aroundTablePointsPos(:,j) = RotPos*...
+                                  aroundTablePointsPos(:,j-1);
+                aroundTablePointsNeg(:,j) = RotNeg*...
+                                  aroundTablePointsNeg(:,j-1);
+                              
+                end
+            aroundTablePointsPos = aroundTablePointsPos+table';
+            aroundTablePointsNeg = aroundTablePointsNeg+table';
+
+            distancesPos = zeros(N,1);
+            distancesNeg = zeros(N,1);
+
+            for j = 1:N
+                distancesPos(j) = norm(aroundTablePointsPos(:,j)-NewCenterRef(1:2));
+                distancesNeg(j) = norm(aroundTablePointsNeg(:,j)-NewCenterRef(1:2));
+
+            end
+            indexMinPos = find(distancesPos == min(distancesPos));
+            indexMinNeg = find(distancesNeg == min(distancesNeg));
+            
+            if indexMinPos <= indexMinNeg
+                aroundTablePoints = aroundTablePointsPos(:,1:indexMinPos);
+            else
+                aroundTablePoints = aroundTablePointsNeg(:,1:indexMinNeg);
+            end
+            %%%%%%%%%%%%%%%%%%%%%%%%
+            controller1 = robotics.PurePursuit('DesiredLinearVelocity',...
+                                               0.02,... %0.02
+                                                'LookaheadDistance',...
+                                               0.02,...
+                                               'MaxAngularVelocity',...
+                                               0.02,... %0.02
+                                               'Waypoints',...
+                                               aroundTablePoints');
+                                           
+           path2 = [youbotPos(1:2);NewCenterRef(1:2)'];                             
+           controller2 = robotics.PurePursuit('DesiredLinearVelocity',...
+                                               0.02,... %0.02
+                                                'LookaheadDistance',...
+                                               0.02,...
+                                               'MaxAngularVelocity',...
+                                               0.02,... %0.02
+                                               'Waypoints',...
+                                               path2);                                
+           goalRadius1 = 0.3;
+           distanceToGoal1 = norm(youbotPos(1:2)'-aroundTablePoints(:,end));
+           goalRadius2 = 0.35; % 0.3 ca fonctionne bien quand meme
+           distanceToGoal2 = norm(youbotPos(1:2)'-NewCenterRef(1:2));
+           
+           while( distanceToGoal1 > goalRadius1)
+            start_loop1 = tic;
+            % Compute the controller outputs, i.e., the inputs to the robot
+            % Simulate the robot using the controller outputs.
+            % exprimer robotvel(1) and robotvel(2) and orientation (par
+            % rapport robot)
+            % en fonction de v et omega (par rapprot axes absolus)
+            
+% 
+            if indexMinPos > indexMinNeg
+                [v, omega] = controller1([youbotPos(1:2), wrapTo2Pi(wrapTo2Pi(youbotEuler(3))-pi/2)]);
+                v = -v;
+            else
+                
+               [v, omega] = controller1([youbotPos(1:2),wrapTo2Pi(wrapTo2Pi(wrapTo2Pi(youbotEuler(3))+pi)-pi/2)]);
+
+            end
+            
+            % Get position in youbot coordinate system
+            % Use tranpose of rotationMatrix because multiplating with a line
+            % matrix instead of a column matrix
+
+            % Get angle between front of youbot and target
+            % A corriger
+            % Compose speed
+
+        
+        
+
+            h = youbot_drive(vrep, h, v, 0, omega);
+        
+
+            % Extract current location information ([X,Y]) from the current pose of the
+            [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);
+            [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);              
+            distanceToGoal1 = norm(youbotPos(1:2)' - aroundTablePoints(:,end));
+            ellapsed = toc(start_loop1);
+            remaining = timestep - ellapsed;
+            % time control
+            if remaining > 0
+                pause(min(remaining, .01));
+            end
+            
+           end
+           if (distanceToGoal1 <= goalRadius1)
+               while (distanceToGoal2 > goalRadius2)
+                   start_loop2 = tic;
+                   [v, ~] = controller2([youbotPos(1:2),0]);
+                   h = youbot_drive(vrep, h, 0, -v, 0);
+                   % Extract current location information ([X,Y]) from the current pose of the
+                   [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+                   vrchk(vrep, res);
+                   [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                   vrchk(vrep, res);              
+                   distanceToGoal2 = norm(youbotPos(1:2)' - NewCenterRef(1:2));
+                   ellapsed = toc(start_loop2);
+                   remaining = timestep - ellapsed;
+                    % time control
+                   if remaining > 0
+                       pause(min(remaining, .01));
+                   end
+               end
+           end
+           h = youbot_drive(vrep, h, 0, 0, 0);
+           i=1;
+            
+        else
+            if i < length(AngleSensor)
+                disp('Object Not Found');
+                disp('Maybe, orientation of  XYZ sensor should be changed');
+                i=i+1;
+            
+            else
+                disp('Object Not Found after scanning all angles')
+                 break
+            end
+        end
+   end
+end
