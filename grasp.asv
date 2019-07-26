@@ -1,4 +1,4 @@
-function grasping()
+function [stateObject] = grasp(centerTable)
     timestep = .05;
 
     run('C:\trs\matlab\startup_robot.m')
@@ -51,28 +51,19 @@ function grasping()
                    0,1,0,armRefToXyzSensor(2);...
                    0,0,1,armRefToXyzSensor(3);...
                    0,0,0,1];
-    Roty = [cosd(-90),0,sind(-90),0;...
-            0,1,0,0;...
-            -sind(-90),0,cosd(-90),0;...
-            0,0,0,1];
-    Rotz = [cosd(90),-sind(90),0,0;...
-                sind(90),cosd(90),0,0;...
-                0,0,1,0;...
-                0,0,0,1];
-    trans = [1,0,0,youbotToArmRef(1);...
-             0,1,0,youbotToArmRef(2);...
-             0,0,1,youbotToArmRef(3);...
-             0,0,0,1];
+%     Roty = [c osd(-90),0,sind(-90),0;...
+%             0,1,0,0;...
+%             -sind(-90),0,cosd(-90),0;...
+%             0,0,0,1];
+%     Rotz = [cosd(90),-sind(90),0,0;...
+%                 sind(90),cosd(90),0,0;...
+%                 0,0,1,0;...
+%                 0,0,0,1];
+%     trans = [1,0,0,youbotToArmRef(1);...
+%              0,1,0,youbotToArmRef(2);...
+%              0,0,1,youbotToArmRef(3);...
+%              0,0,0,1];
          
-    RotyRefToYoubot = [cosd(-90),0,sind(-90),0;...
-            0,1,0,0;...
-            -sind(-90),0,cosd(-90),0;...
-            0,0,0,1];
-        
-    RotzRefToYoubot = [cosd(-90),-sind(-90),0,0;...
-                sind(-90),cosd(-90),0,0;...
-                0,0,1,0;...
-                0,0,0,1];
     RotzRefToXYZ = [cosd(180),-sind(180),0,0;...
                 sind(180),cosd(180),0,0;...
                 0,0,1,0;...
@@ -82,19 +73,12 @@ function grasping()
                 0,sind(-90), cosd(-90), 0;...
                 0,0,0,1];
     
-    table = [-3,-6];
+    %centerTable = [-3,-6];
     
     % Let a few cycles pass to make sure there's a value waiting for us next time we try to get a joint angle or 
     % the robot pose with the simx_opmode_buffer option.
     pause(.2);
     
-% Minimum and maximum angles for all joints. Only useful to implement custom IK. 
-    armJointRanges = [-2.9496064186096, 2.9496064186096;
-                      -1.5707963705063, 1.308996796608;
-                      -2.2863812446594, 2.2863812446594;
-                      -1.7802357673645, 1.7802357673645;
-                      -1.5707963705063, 1.5707963705063 ];
-
     % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
     %startingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
     startingJoints = [0, 30.91 * pi / 180, 30.42 * pi / 180, 72.68 * pi / 180, 0];
@@ -115,7 +99,7 @@ function grasping()
     pause(2);
 
     % Retrieve the position of the gripper. 
-    [res, homeGripperPosition] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef, vrep.simx_opmode_buffer);
+    [res, ~] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef, vrep.simx_opmode_buffer);
     vrchk(vrep, res, true);
     i=1;
     while true
@@ -159,8 +143,10 @@ function grasping()
         
             % move the tip of the arm 
             res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 0.5*[NewCenter(1),NewCenter(2),2*NewCenter(3)], vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
             pause(3);
             res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, NewCenter, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
             pause(3)
             res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 1.02*NewCenter, vrep.simx_opmode_oneshot_wait);
 
@@ -180,28 +166,20 @@ function grasping()
             pause(5);
             res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
-            
+            state
             break;
         elseif strcmp(stateObject,'too far')
                 disp('Cylinder too far');
                 
                 % NewCenter in youbot axis 
-            NewCenterYoubot = trans*Roty*Rotz*[NewCenter,1]';
+            % NewCenterYoubot = trans*Roty*Rotz*[NewCenter,1]'; % Don't
+            % provide good results, has to be corrected
             % NewCenterYoubot in ref axis
             [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
             vrchk(vrep, res);
             [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
             vrchk(vrep, res);
 
-            RotzRefToYoubotEuler = [cosd(youbotEuler(3)),-sind(youbotEuler(3)),0,0;...
-                sind(youbotEuler(3)),cosd(youbotEuler(3)),0,0;...
-                0,0,1,0;...
-                0,0,0,1];
-            transRefYoubot = [1,0,0,youbotPos(1);...
-             0,1,0,youbotPos(2);...
-             0,0,1,youbotPos(3);...
-             0,0,0,1];
-         
             [res,xyzSensor] = vrep.simxGetObjectPosition(id, h.xyzSensor, -1, vrep.simx_opmode_oneshot_wait);
             transRefxyzSensor = [1,0,0,xyzSensor(1);...
              0,1,0,xyzSensor(2);...
@@ -215,10 +193,10 @@ function grasping()
                             RotxRefToXYZ*...
                             RotzRefToXYZ*...
                             [center(1);center(2);center(3);1];
-            tableYoubot = youbotPos(1:2) - table;
+            centerTableYoubot = youbotPos(1:2) - centerTable;
             N = 50;
-            aroundTablePointsPos = tableYoubot(1:2)';
-            aroundTablePointsNeg = aroundTablePointsPos;
+            aroundcenterTablePointsPos = centerTableYoubot(1:2)';
+            aroundcenterTablePointsNeg = aroundcenterTablePointsPos;
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             RotPos = [cosd(360/N), -sind(360/N);...
@@ -226,30 +204,30 @@ function grasping()
             RotNeg = [cosd(-360/N), -sind(-360/N);...
                    sind(-360/N), cosd(-360/N)];
                for j = 2:N
-                aroundTablePointsPos(:,j) = RotPos*...
-                                  aroundTablePointsPos(:,j-1);
-                aroundTablePointsNeg(:,j) = RotNeg*...
-                                  aroundTablePointsNeg(:,j-1);
+                aroundcenterTablePointsPos(:,j) = RotPos*...
+                                  aroundcenterTablePointsPos(:,j-1);
+                aroundcenterTablePointsNeg(:,j) = RotNeg*...
+                                  aroundcenterTablePointsNeg(:,j-1);
                               
                 end
-            aroundTablePointsPos = aroundTablePointsPos+table';
-            aroundTablePointsNeg = aroundTablePointsNeg+table';
+            aroundcenterTablePointsPos = aroundcenterTablePointsPos+centerTable';
+            aroundcenterTablePointsNeg = aroundcenterTablePointsNeg+centerTable';
 
             distancesPos = zeros(N,1);
             distancesNeg = zeros(N,1);
 
             for j = 1:N
-                distancesPos(j) = norm(aroundTablePointsPos(:,j)-NewCenterRef(1:2));
-                distancesNeg(j) = norm(aroundTablePointsNeg(:,j)-NewCenterRef(1:2));
+                distancesPos(j) = norm(aroundcenterTablePointsPos(:,j)-NewCenterRef(1:2));
+                distancesNeg(j) = norm(aroundcenterTablePointsNeg(:,j)-NewCenterRef(1:2));
 
             end
             indexMinPos = find(distancesPos == min(distancesPos));
             indexMinNeg = find(distancesNeg == min(distancesNeg));
             
             if indexMinPos <= indexMinNeg
-                aroundTablePoints = aroundTablePointsPos(:,1:indexMinPos);
+                aroundcenterTablePoints = aroundcenterTablePointsPos(:,1:indexMinPos);
             else
-                aroundTablePoints = aroundTablePointsNeg(:,1:indexMinNeg);
+                aroundcenterTablePoints = aroundcenterTablePointsNeg(:,1:indexMinNeg);
             end
             %%%%%%%%%%%%%%%%%%%%%%%%
             controller1 = robotics.PurePursuit('DesiredLinearVelocity',...
@@ -259,7 +237,7 @@ function grasping()
                                                'MaxAngularVelocity',...
                                                0.02,... %0.02
                                                'Waypoints',...
-                                               aroundTablePoints');
+                                               aroundcenterTablePoints');
                                            
            path2 = [youbotPos(1:2);NewCenterRef(1:2)'];                             
            controller2 = robotics.PurePursuit('DesiredLinearVelocity',...
@@ -271,7 +249,7 @@ function grasping()
                                                'Waypoints',...
                                                path2);                                
            goalRadius1 = 0.3;
-           distanceToGoal1 = norm(youbotPos(1:2)'-aroundTablePoints(:,end));
+           distanceToGoal1 = norm(youbotPos(1:2)'-aroundcenterTablePoints(:,end));
            goalRadius2 = 0.35; % 0.3 ca fonctionne bien quand meme
            distanceToGoal2 = norm(youbotPos(1:2)'-NewCenterRef(1:2));
            
@@ -312,7 +290,7 @@ function grasping()
             vrchk(vrep, res);
             [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
             vrchk(vrep, res);              
-            distanceToGoal1 = norm(youbotPos(1:2)' - aroundTablePoints(:,end));
+            distanceToGoal1 = norm(youbotPos(1:2)' - aroundcenterTablePoints(:,end));
             ellapsed = toc(start_loop1);
             remaining = timestep - ellapsed;
             % time control
@@ -327,8 +305,6 @@ function grasping()
                    [v, ~] = controller2([youbotPos(1:2),0]);
                    h = youbot_drive(vrep, h, 0, -v, 0);
                    % Extract current location information ([X,Y]) from the current pose of the
-                   [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
-                   vrchk(vrep, res);
                    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
                    vrchk(vrep, res);              
                    distanceToGoal2 = norm(youbotPos(1:2)' - NewCenterRef(1:2));
