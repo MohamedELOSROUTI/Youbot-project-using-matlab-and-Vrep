@@ -1,4 +1,12 @@
 function [stateObject] = grasp(centerTable)
+    %% Function that takes as input the center of the table
+    %  returns stateObject which takes 2 values :
+    % 1. 'Piched' : The robot managed to find a cylinder and has taken it
+    % from the table
+    % 2. 'Unpicked' : means that no cylinder has been found
+    
+    % Important : we assume that the youbot is facing the table in parallel
+    % according to -y axis !
     timestep = .05;
 
     run('C:\trs\matlab\startup_robot.m')
@@ -98,9 +106,6 @@ function [stateObject] = grasp(centerTable)
     % Make sure everything is settled before we start. 
     pause(2);
 
-    % Retrieve the position of the gripper. 
-    [res, ~] = vrep.simxGetObjectPosition(id, h.ptip, h.armRef, vrep.simx_opmode_buffer);
-    vrchk(vrep, res, true);
     i=1;
     while true
         
@@ -166,10 +171,10 @@ function [stateObject] = grasp(centerTable)
             pause(5);
             res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
-            state
+            stateObject = 'Picked';
             break;
         elseif strcmp(stateObject,'too far')
-                disp('Cylinder too far');
+                disp('Cylinder too far, moving towards ...');
                 
                 % NewCenter in youbot axis 
             % NewCenterYoubot = trans*Roty*Rotz*[NewCenter,1]'; % Don't
@@ -231,7 +236,7 @@ function [stateObject] = grasp(centerTable)
             end
             %%%%%%%%%%%%%%%%%%%%%%%%
             controller1 = robotics.PurePursuit('DesiredLinearVelocity',...
-                                               0.02,... %0.02
+                                               0.0,... %0.02
                                                 'LookaheadDistance',...
                                                0.02,...
                                                'MaxAngularVelocity',...
@@ -270,21 +275,10 @@ function [stateObject] = grasp(centerTable)
                [v, omega] = controller1([youbotPos(1:2),wrapTo2Pi(wrapTo2Pi(wrapTo2Pi(youbotEuler(3))+pi)-pi/2)]);
 
             end
-            
-            % Get position in youbot coordinate system
-            % Use tranpose of rotationMatrix because multiplating with a line
-            % matrix instead of a column matrix
 
-            % Get angle between front of youbot and target
-            % A corriger
-            % Compose speed
-
-        
-        
 
             h = youbot_drive(vrep, h, v, 0, omega);
         
-
             % Extract current location information ([X,Y]) from the current pose of the
             [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
             vrchk(vrep, res);
@@ -322,11 +316,12 @@ function [stateObject] = grasp(centerTable)
         else
             if i < length(AngleSensor)
                 disp('Object Not Found');
-                disp('Maybe, orientation of  XYZ sensor should be changed');
+                disp('Changing orientation of  XYZ sensor ...');
                 i=i+1;
             
             else
                 disp('Object Not Found after scanning all angles')
+                stateObject = 'Unpicked';
                  break
             end
         end
