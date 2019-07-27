@@ -8,7 +8,7 @@ function [stateObject] = grasp(centerTable)
     % Important : we assume that the youbot is facing the table in parallel
     % according to -y axis !
     timestep = .05;
-
+    centerTable = centerTable(1:2);
     run('C:\trs\matlab\startup_robot.m')
     disp('Program started');
     % Use the following line if you had to recompile remoteApi
@@ -105,6 +105,58 @@ function [stateObject] = grasp(centerTable)
 
     % Make sure everything is settled before we start. 
     pause(2);
+    % First make sure that the youbot is correctly placed around the table.
+    % The -y axis of the youbot should face table !
+    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+    vrchk(vrep, res);
+    centerTableToYoubotPosVec = ...
+        youbotPos(1:2)-centerTable;
+    tangentTableVec = [cosd(90), -sind(90);...
+                   sind(90), cosd(90)]*...
+                   centerTableToYoubotPosVec';
+    tangentTableVec = tangentTableVec/...
+        norm(tangentTableVec);
+    beta = wrapToPi(angle(tangentTableVec(1)+...
+        complex(0,1)*tangentTableVec(2))-pi/2); % between [0,pi]
+    
+    % YoubotEuler(3) should be close to beta to start grasping
+    % chek it
+    [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+    vrchk(vrep, res);
+    if (abs(youbotEuler(3) - beta) > 0.01)
+        disp('Adjusting orientation of youbot');
+        while (abs(youbotEuler(3) - beta) > 0.01) % 11 degree
+            start_loop3 = tic;
+            rotateRightVel = angdiff(beta, youbotEuler(3))/5;
+            h = youbot_drive(vrep, h, 0, 0, rotateRightVel);
+            [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);
+            ellapsed = toc(start_loop3);
+            remaining = timestep - ellapsed;
+            % time control
+            if remaining > 0
+                pause(min(remaining, .01));
+            end
+        end
+    end
+
+    
+    h = youbot_drive(vrep, h, 0, 0, 0);
+%     while (norm(centerTableToYoubotPosVec) > 0.63)
+%         start_loop4 = tic;
+%         centerTableToYoubotPosVec = ...
+%         youbotPos(1:2)-centerTable;
+%         h = youbot_drive(vrep, h, 0, -0.01, 0);
+%         [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+%         vrchk(vrep, res);
+%         ellapsed = toc(start_loop4);
+%         remaining = timestep - ellapsed;
+%         if remaining > 0
+%                 pause(min(remaining, .01));
+%         end
+%     end
+%     pause(0.01);
+%     h = youbot_drive(vrep, h, 0, 0, 0);
 
     i=1;
     while true
@@ -121,7 +173,7 @@ function [stateObject] = grasp(centerTable)
 
         takePicture(id,vrep,h,AngleSensor(i));
         pts = scanXYZ(id,vrep,h, AngleSensor(i), pi/15);
-        plot3(pts(1, :), pts(3, :), pts(2, :), '*');
+        %plot3(pts(1, :), pts(3, :), pts(2, :), '*');
         
         [center, Found] = detectCylinder(pts);
         % NewCenter is armRef axis
@@ -199,7 +251,7 @@ function [stateObject] = grasp(centerTable)
                             RotzRefToXYZ*...
                             [center(1);center(2);center(3);1];
             centerTableYoubot = youbotPos(1:2) - centerTable;
-            N = 50;
+            N = 50; % 50
             aroundcenterTablePointsPos = centerTableYoubot(1:2)';
             aroundcenterTablePointsNeg = aroundcenterTablePointsPos;
 
@@ -236,11 +288,11 @@ function [stateObject] = grasp(centerTable)
             end
             %%%%%%%%%%%%%%%%%%%%%%%%
             controller1 = robotics.PurePursuit('DesiredLinearVelocity',...
-                                               0.05,... %0.02
+                                               0.05,... %0.02 %0.05
                                                 'LookaheadDistance',...
                                                0.02,...
                                                'MaxAngularVelocity',...
-                                               0.05,... %0.02
+                                               0.08,... %0.02 %0.02
                                                'Waypoints',...
                                                aroundcenterTablePoints');
                                            
@@ -253,7 +305,7 @@ function [stateObject] = grasp(centerTable)
                                                0.02,... %0.02
                                                'Waypoints',...
                                                path2);                                
-           goalRadius1 = 0.3;
+           goalRadius1 = 0.2; % 0.3
            distanceToGoal1 = norm(youbotPos(1:2)'-aroundcenterTablePoints(:,end));
            goalRadius2 = 0.35; % 0.3 ca fonctionne bien quand meme
            distanceToGoal2 = norm(youbotPos(1:2)'-NewCenterRef(1:2));
@@ -293,6 +345,9 @@ function [stateObject] = grasp(centerTable)
             end
             
            end
+            h = youbot_drive(vrep, h, 0, 0, 0);
+            pause(0.01);
+
            if (distanceToGoal1 <= goalRadius1)
                while (distanceToGoal2 > goalRadius2)
                    start_loop2 = tic;
@@ -310,6 +365,8 @@ function [stateObject] = grasp(centerTable)
                    end
                end
            end
+           pause(0.01);
+
            h = youbot_drive(vrep, h, 0, 0, 0);
            i=1;
             
