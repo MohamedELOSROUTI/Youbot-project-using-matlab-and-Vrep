@@ -1,7 +1,7 @@
 function youbot_project()
     clc, clearvars, close all
 
-    run('C:\trs\matlab\startup_robot.m')
+    run('..\..\matlab\startup_robot.m')
     
     
     %% Parameters
@@ -24,7 +24,6 @@ function youbot_project()
     targets_q = Queue();
     path = [];
     repath = true;
-    path_updated = false;
     
     
     mapping_fig = figure('Name', 'Mapping figure');
@@ -92,23 +91,6 @@ function youbot_project()
     prm.NumNodes = 70;
     prm.ConnectionDistance = 5;
     
-    
-    %% Bag of features
-    load('instructions.mat')
-    bagsOfFeatures = containers.Map;
-    for i=1:length(inst)
-        bagsOfFeatures(inst(i).picture) = NaN;
-    end
-    
-    keySet = bagsOfFeatures.keys;
-    for i=1:length(keySet)
-        I = rgb2gray(imread( strcat(pwd, '\', keySet{i}) ));
-        pts = detectSURFFeatures(I);
-        
-        [f vpts] = extractFeatures(I, pts);
-        bagsOfFeatures(keySet{i}) = struct('f', f, 'vpts',                                                                          vpts);
-    end
-        
 
     %% Position setup
     % Youbot initial position
@@ -124,8 +106,7 @@ function youbot_project()
     
     
     % Finite State Machine first state
-     fsm = 'firstLook';
-    %fsm = 'matchFeatures';
+    fsm = 'firstLook';
     
     %% Start
     disp('Enter loop')
@@ -167,11 +148,7 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-<<<<<<< HEAD
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 8) + youbotPos_map(1:2), [0.2 0.5]);
-=======
             insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
->>>>>>> 073f1685fdb5ffd7acd14ef0d59a1c96414c52c4
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             % Update occupancy in the high resolution map
             insertRay(hires_map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
@@ -229,24 +206,26 @@ function youbot_project()
                 R = hypot(x, y);
                 T = transformAngleRange( atan2(x, -y), -sumprod_agls, [-pi pi] );
                 
-                while isempty(free_cells)
-                    front_angle = front_angle + 5*pi/180;
-                    
-                    cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) ...
-                             y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
-                        + youbotPos_map(1:2);
-                    
-                    ij = unique(world2grid(imap, cells), 'rows');
-                    occ = checkOccupancy(imap, ij, 'grid');
-                    ij_occ = [ij occ];
-                    
-                    free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
-                end
-                endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
                 
                 % While cannot find path, add nodes
                 initialNumNodes = prm.NumNodes;
                 while isempty(path)
+                    while isempty(free_cells)
+                        front_angle = front_angle + 5*pi/180;
+
+                        cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) ...
+                                 y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
+                            + youbotPos_map(1:2);
+
+                        ij = unique(world2grid(imap, cells), 'rows');
+                        occ = checkOccupancy(imap, ij, 'grid');
+                        ij_occ = [ij occ];
+
+                        free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
+                    end
+                    endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
+                    
+                    
                     prm.NumNodes = prm.NumNodes + 5;
                     prm.update();
                     
@@ -254,16 +233,16 @@ function youbot_project()
                         path = findpath(prm, double(startl), double(endl));
                     catch
                         disp("Error handled")
-%                         bckp_pt = rotationMatrix*[0;0;0] + youbotPos';
-                        bckp_pt = (rotationMatrix*[0;0.5;0])' + youbotPos - originPos + [mapSize/2 0];
+                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
                         path = [startl;bckp_pt(1:2)];
                         
                         break
                     end
                     
                     if prm.NumNodes > initialNumNodes+20
-                        endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
                         prm.NumNodes = initialNumNodes;
+                        
+                        free_cells = [];
                     end
                 end
                 
@@ -278,90 +257,25 @@ function youbot_project()
                 
                 % No need to repath yet
                 repath = false;
-                path_updated = true;
             end
         elseif strcmp(fsm, 'locateTablesBaskets')
-<<<<<<< HEAD
-            %% Locate tables and baskets
-            map_ = occupancyMatrix(map, 'ternary');
-            imap_ = occupancyMatrix(imap, 'ternary');
-            
-            [centers, radii, metric] = imfindcircles(imap_, [10 13], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
-            % Choose the most significant circles metric lim = 0.05 => find the basket - tables
-=======
             inflate(hires_map, robot_radius)
             map_ = occupancyMatrix(hires_map, 'ternary');
             
             [centers, radii, metric] = imfindcircles(map_, [30 40], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
->>>>>>> 073f1685fdb5ffd7acd14ef0d59a1c96414c52c4
             % we have to find a way to distinguish them now
-            centersStrong = centers(1:7,:);
+            centersStrong = grid2world(hires_map, round(centers(1:7,:)));
             radiiStrong = radii(1:7);
             metricStrong = metric(1:7);
             
-<<<<<<< HEAD
-            subplot(1,2,2)
-            imshow(map_)
-            viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
+            d_from_center = vectnorm(centersStrong - [25 25], 2);
+            [~, indexes] = mink(d_from_center, 2);
             
-            fsm = 'end';
-        
-        elseif strcmp(fsm, 'matchFeatures')
-            %% Associate object to basket - /!\ Not tested yet
-            % Take a picture with youbot's RGB camera
-            vrep.simxSetObjectOrientation(id, h.rgbdCasing, h.ref, [-pi/12, 0, -pi/2], vrep.simx_opmode_oneshot);
-            res = vrep.simxSetIntegerSignal(id, 'handle_rgb_sensor', 1, vrep.simx_opmode_oneshot_wait);
-            vrchk(vrep, res);
-            [res, resolution, image] = vrep.simxGetVisionSensorImage2(id, h.rgbSensor, 0, vrep.simx_opmode_oneshot_wait);
-            vrchk(vrep, res);
-            I2 = rgb2gray(image);
-            regions2 = detectSURFFeatures(I2);
+            tables = centersStrong(indexes);
+            centersStrong(indexes) = [];
+            baskets = centersStrong;
             
-            for i=1:length(bagsOfFeatures)
-                % Retrieve features and valid points from map
-                f1 = bagsOfFeatures(keySet{i}).f;
-                vpts1 = bagsOfFeatures(keySet{i}).vpts;
-                
-                [f2, vpts2] = extractFeatures(I2, regions2);
-                
-                % Match features
-                pairs = matchFeatures(f1, f2);
-                matchedPoints1 = vpts1(pairs(:,1),:);
-                matchedPoints2 = vpts2(pairs(:,2),:);
-                try
-                    ME = [];
-                    [tform, inlierObjPts, inlierScnPts] = estimateGeometricTransform(matchedPoints1, matchedPoints2, 'affine');
-                catch ME
-                end
-                
-                if isempty(ME)
-                    % Set basket object
-                    display(keySet{i});
-                end
-            end
-
-%             [f1, vpts1] = extractFeatures(I1, regions1);
-%             [f2, vpts2] = extractFeatures(I2, regions2);
-%             pairs = matchFeatures(f1, f2);
-% 
-%             matchedPoints1 = vpts1(pairs(:,1),:);
-%             matchedPoints2 = vpts2(pairs(:,2),:);
-%             [tform, inlierObjPts, inlierScnPts] = estimateGeometricTransform(matchedPoints1, matchedPoints2, 'affine');
-
-%             figure; showMatchedFeatures(I1, I2, inlierObjPts, inlierScnPts, 'montage');
-% 
-%             boxPolygon = [1, 1;...                           % top-left
-%                 size(I1, 2), 1;...                 % top-right
-%                 size(I1, 2), size(I1, 1);... % bottom-right
-%                 1, size(I1, 1);...                 % bottom-left
-%                 1, 1];
-%             newBoxPolygon = transformPointsForward(tform, boxPolygon);
-% 
-%             figure;
-%             imshow(I2); hold on;
-%             line(newBoxPolygon(:, 1), newBoxPolygon(:, 2), 'Color', 'y');
-
-=======
+            
             subplot(1,2,2);
             imshow(map_)
             viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
@@ -371,7 +285,6 @@ function youbot_project()
             if nb_iter > stop_iter + 20
                 fsm = 'locateTablesBaskets';
             end
->>>>>>> 073f1685fdb5ffd7acd14ef0d59a1c96414c52c4
         elseif strcmp(fsm, 'end')
             
         end
@@ -457,34 +370,31 @@ function youbot_project()
         %% Plotting
         % Show map (if needed: see 'plot_data' )
         % Mean=19.4ms  /  Min=10.5ms  /  Max=440ms
-        if plot_data && mod(nb_iter, nb_iter_per_plot) == 0 && ~path_updated
+        if plot_data && mod(nb_iter, nb_iter_per_plot) == 0
             figure(mapping_fig);
             
             subplot(1,2,1);
-            show(map);
+            if mapping
+                show(map);
+            else
+                show(imap);
+            end
             hold on;
-            if ~isempty(path)
+            if ~isempty(path) && mapping
                 plot(path(:,1)+mapSize(1)/2-originPos(1), path(:,2)+mapSize(2)/2-originPos(2),'k--d')
                 scatter(closePP_map(:,1), closePP_map(:,2), 'b*');
-                % Maybe add rayIntersect info and draw line between youbot
-                % and points
+            elseif ~isempty(tables)
+                scatter(tables(:,1), tables(:,2), 'filled', 'go')
+                scatter(baskets(:,1), baskets(:,2), 'filled', 'bo')
             end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
-<<<<<<< HEAD
-            %% if we are at state 'locateTablesBaskets' plot a cross on them
-            if strcmp(fsm, 'locateTablesBaskets')
-                scatter(centersStrong(:,1), centersStrong(:,2),'b*');
-            end
-=======
             
->>>>>>> 073f1685fdb5ffd7acd14ef0d59a1c96414c52c4
             subplot(1,2,2);
             if strcmp(fsm, 'computePath') && ~isempty(path)
                 show(prm)
             end
         end
-        path_updated = false;
         
         % Count number of times while is executed to save execution time on
         % mapping
