@@ -25,6 +25,9 @@ function youbot_project()
     path = [];
     repath = true;
     
+    tables = [];
+    baskets = [];
+    
     
     mapping_fig = figure('Name', 'Mapping figure');
     set(gcf, 'position', [10 10 980 520]);
@@ -162,7 +165,7 @@ function youbot_project()
             %% First look
             % Enforce free and occupied probabilities in grid around youbot
             % original pose
-            if nb_iter == 2
+            if nb_iter == 10
                 fsm = 'computePath';
                 disp('Compute path');
             end
@@ -259,21 +262,24 @@ function youbot_project()
                 repath = false;
             end
         elseif strcmp(fsm, 'locateTablesBaskets')
+            %% Locate baskets and tables
+            
             inflate(hires_map, robot_radius)
             map_ = occupancyMatrix(hires_map, 'ternary');
             
             [centers, radii, metric] = imfindcircles(map_, [30 40], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
             % we have to find a way to distinguish them now
-            centersStrong = grid2world(hires_map, round(centers(1:7,:)));
+            centersStrong = centers(1:7,:);
+            centersStrong_m = flip([50 50] - grid2world(hires_map, round(centers(1:7,:))), 2);
             radiiStrong = radii(1:7);
             metricStrong = metric(1:7);
             
-            d_from_center = vectnorm(centersStrong - [25 25], 2);
+            d_from_center = vectnorm(centersStrong_m - [25 25], 2);
             [~, indexes] = mink(d_from_center, 2);
             
-            tables = centersStrong(indexes);
-            centersStrong(indexes) = [];
-            baskets = centersStrong;
+            tables = centersStrong_m(indexes,:);
+            centersStrong_m(indexes,:) = [];
+            baskets = centersStrong_m;
             
             
             subplot(1,2,2);
@@ -281,7 +287,25 @@ function youbot_project()
             viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
             fsm = 'end';
             
+        elseif strcmp(fsm, 'matchFeatures')
+            %% Match baskets features
+            
+            % Test de code pour trouver le point le plus près du centre du
+            % cercle pour y naviguer
+            % t = occupancyMatrix(imap, 'ternary');
+            % t2 = [400 400] - world2grid(map, baskets(i,:); % pas le même
+            % repère entre les deux
+            % t3 = t(t2(2)-10:t2(2)+10,t2(1)-10:t2(1)+10); carré autour du
+            % centre
+            % [x1, y1] = meshgrid(-10:1:10, 10:-1:-10)
+            % h = hypot(x1, y1);
+            % t3(t3 ~= 0) = inf;
+            % t3(t3 == 0) = h(t3 == 0);
+            % min(min(t3)) donne le point le plus près du center du cercle
+            
         elseif strcmp(fsm, 'stop')
+            %% Stop youbot
+            
             if nb_iter > stop_iter + 20
                 fsm = 'locateTablesBaskets';
             end
