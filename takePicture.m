@@ -26,6 +26,6 @@ function takePicture(id,vrep,h,angleCamera)
             [res, resolution, image] = vrep.simxGetVisionSensorImage2(id, h.rgbSensor, 0, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep, res);
             fprintf('Captured %i pixels (%i x %i).\n', resolution(1) * resolution(2), resolution(1), resolution(2));
-            imshow(image);
+%             imshow(image);
 
 end
