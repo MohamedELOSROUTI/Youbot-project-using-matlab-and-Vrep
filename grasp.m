@@ -10,7 +10,7 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
     % according to -y axis !
     timestep = .05;
     centerTable = centerTable(1:2);
-    run('C:\Users\elosr\IntelligentRoboticsProject\trs\matlab\startup_robot.m')
+% % %     run('C:\Users\elosr\IntelligentRoboticsProject\trs\matlab\startup_robot.m')
 % % %     disp('Program started');
     % Use the following line if you had to recompile remoteApi
 %     vrep = remApi('remoteApi', 'extApi.h');
@@ -28,7 +28,7 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
 % % %         return;
 % % %     end
 % % %     fprintf('Connection %d to remote API server open.\n', id);
-    
+% % %     store = true ;
     % Make sure we close the connection whenever the script is interrupted.
 % % %     cleanupObj = onCleanup(@() cleanup_vrep(vrep, id));
     
@@ -109,9 +109,9 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
     
     % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
     %placingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
-    % placingJoints1 = [0, 39 * pi / 180, 35 * pi / 180, 50 * pi / 180, 0];
-    placingJoints2 = [0, 39 * pi / 180, 55 * pi / 180, 0 * pi / 180, 0]; % au lieu de 0 mettre 50
-
+    placingJoints3 = [0, -1 * pi / 180, 90 * pi / 180, 0 * pi / 180, 0]; 
+    placingJoints2 = [0, -1 * pi / 180, 120 * pi / 180, 0 * pi / 180, 0];
+    placingJoints1 = [0, 0 * pi / 180, 0 * pi / 180, 0 * pi / 180, 0];
     %% Preset values for the demo. 
 % % %     disp('Starting robot');
     
@@ -144,9 +144,9 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
     % check it
     [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
     vrchk(vrep, res);
-    if (abs(youbotEuler(3) - beta) > 0.01)
+    if (abs(youbotEuler(3) - beta) > 0.1)
         disp('Adjusting orientation of youbot');
-        while (abs(youbotEuler(3) - beta) > 0.01) % 11 degree
+        while (abs(youbotEuler(3) - beta) > 0.1) 
             start_loop3 = tic;
             rotateRightVel = angdiff(beta, youbotEuler(3))/5;
             h = youbot_drive(vrep, h, 0, 0, rotateRightVel);
@@ -247,14 +247,13 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             vrchk(vrep, res, true);
         
             % move the tip of the arm 
-            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 0.5*[NewCenter(1),NewCenter(2),2*NewCenter(3)], vrep.simx_opmode_oneshot_wait);
+            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 0.5*[NewCenter(1),NewCenter(2),3*NewCenter(3)], vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
             pause(3);
             res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, NewCenter, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
             pause(3)
-            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 1.05*NewCenter, vrep.simx_opmode_oneshot_wait);
-
+            res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, 1.05*[NewCenter(1), NewCenter(2), (1/1.05)*NewCenter(3)], vrep.simx_opmode_oneshot_wait);
             vrchk(vrep, res, true);
             disp('Moving gripper ...');
             pause(2);
@@ -264,22 +263,49 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             pause(5);
             res = vrep.simxSetIntegerSignal(id, 'km_mode', 0, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
-%             for i = 1:5
-%                 res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints1(i), vrep.simx_opmode_oneshot);
-%                 vrchk(vrep, res, true);
-%             end
-%             pause(2);
+            for i = 1:5
+                res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints1(i), vrep.simx_opmode_oneshot);
+                vrchk(vrep, res, true);
+            end
+            pause(2);
             
             for i = 1:5
                 res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints2(i), vrep.simx_opmode_oneshot);
                 vrchk(vrep, res, true);
             end
-            pause(2);
+            pause(5);
             if store
                 res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
                 vrchk(vrep,res);
             end
+            pause(2)
+%             for i = 1:5
+%                 res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints3(i), vrep.simx_opmode_oneshot);
+%                 vrchk(vrep, res, true);
+%             end
+            pause(2);
             stateObject = 'Picked';
+            [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+            vrchk(vrep, res);
+            X = youbotPos(1:2) + (youbotPos(1:2)-centerTable)/1.5;
+            YoubotPosToXVec = X - youbotPos(1:2);
+            e = YoubotPosToXVec/norm(YoubotPosToXVec);
+            while (YoubotPosToXVec*e' > 0)
+                start_loop4 = tic;
+                YoubotPosToXVec = X - youbotPos(1:2);
+                
+                h = youbot_drive(vrep, h, 0, 0.05, 0);
+                [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                vrchk(vrep, res);
+                ellapsed = toc(start_loop4);
+                remaining = timestep - ellapsed;
+                if remaining > 0
+                        pause(min(remaining, .01));
+                end
+            end
+            h = youbot_init(vrep, id);
+            h = youbot_hokuyo_init(vrep, h);
+            h = youbot_drive(vrep, h, 0, 0, 0);
             break;
         elseif strcmp(stateObject,'too far')
                 disp('Cylinder too far, moving towards ...');
@@ -300,7 +326,6 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
              0,0,0,1];
              vrchk(vrep, res);
              
-
             NewCenterRef =  transRefxyzSensor*...
                             rotationz2*...
                             RotxRefToXYZ*...
@@ -352,19 +377,9 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                                                'Waypoints',...
                                                aroundcenterTablePoints');
                                            
-% % %            path2 = [youbotPos(1:2);NewCenterRef(1:2)'];                             
-% % %            controller2 = robotics.PurePursuit('DesiredLinearVelocity',...
-% % %                                                0.02,... %0.02
-% % %                                                 'LookaheadDistance',...
-% % %                                                0.02,...
-% % %                                                'MaxAngularVelocity',...
-% % %                                                0.02,... %0.02
-% % %                                                'Waypoints',...
-% % %                                                path2);                                
+                            
            goalRadius1 = 0.2; % 0.3
            distanceToGoal1 = norm(youbotPos(1:2)'-aroundcenterTablePoints(:,end));
-% % %            goalRadius2 = 0.3; % 0.3 ca fonctionne bien quand meme
-% % %            distanceToGoal2 = norm(youbotPos(1:2)'-NewCenterRef(1:2));
            
            while( distanceToGoal1 > goalRadius1)
             start_loop1 = tic;
@@ -406,28 +421,6 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
            h = youbot_drive(vrep, h, 0, 0, 0);
             pause(0.01);
 
-% % %            if (distanceToGoal1 <= goalRadius1)
-% % %                while (distanceToGoal2 > goalRadius2)
-% % %                    start_loop2 = tic;
-% % %                    [v, ~] = controller2([youbotPos(1:2),0]);
-% % %                    h = youbot_drive(vrep, h, 0, -v, 0);
-% % %                    % Extract current location information ([X,Y]) from the current pose of the
-% % %                    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
-% % %                    vrchk(vrep, res);              
-% % %                    % distanceToGoal2 = norm(youbotPos(1:2)' - NewCenterRef(1:2));
-% % %                    distanceToGoal2 = norm(youbotPos(1:2)' - centerTable')-0.4;
-% % %                    ellapsed = toc(start_loop2);
-% % %                    remaining = timestep - ellapsed;
-% % %                     % time control
-% % %                    if remaining > 0
-% % %                        pause(min(remaining, .01));
-% % %                    end
-% % %                end
-% % %            end
-% % %            pause(0.01);
-% % %            h = youbot_init(vrep, id);
-% % %            h = youbot_hokuyo_init(vrep, h);
-% % %            h = youbot_drive(vrep, h, 0, 0, 0);
            i=1;
             
         else

@@ -1,7 +1,7 @@
 function drop(centerBasket, vrep, id)    
     timestep = .05;
     centerBasket = centerBasket(1:2);
-    run('C:\Users\elosr\IntelligentRoboticsProject\trs\matlab\startup_robot.m')
+% % %     run('C:\Users\elosr\IntelligentRoboticsProject\trs\matlab\startup_robot.m')
     disp('Program started');
     % Use the following line if you had to recompile remoteApi
     %vrep = remApi('remoteApi', 'extApi.h');
@@ -9,7 +9,7 @@ function drop(centerBasket, vrep, id)
 % % %     vrep = remApi('remoteApi');
 % % %     vrep.simxFinish(-1);
 % % %     id = vrep.simxStart('127.0.0.1', 19997, true, true, 2000, 5);
-% % %     
+    
     % If you get an error like: 
     %   Remote API function call returned with error code: 64. Explanation: simxStart was not yet called.
     % Make sure your code is within a function! You cannot call V-REP from a script. 
@@ -41,6 +41,8 @@ function drop(centerBasket, vrep, id)
     % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
     %startingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
     droppingJoints = [-pi/2, pi, 0.2, 0, 0];
+    placingJoints1 = [0, 0 * pi / 180, 0 * pi / 180, 0 * pi / 180, 0];
+    placingJoints3 = [0, -1 * pi / 180, 90 * pi / 180, 0 * pi / 180, 0]; 
 
     %% Preset values for the demo. 
 % % %     disp('Starting robot');
@@ -74,9 +76,9 @@ function drop(centerBasket, vrep, id)
     % check it
     [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
     vrchk(vrep, res);
-    if (abs(youbotEuler(3) - beta) > 0.01)
+    if (abs(youbotEuler(3) - beta) > 0.1)
         disp('Adjusting orientation of youbot');
-        while (abs(youbotEuler(3) - beta) > 0.01) % 11 degree
+        while (abs(youbotEuler(3) - beta) > 0.1) % 11 degree
             start_loop3 = tic;
             rotateRightVel = angdiff(beta, youbotEuler(3))/5;
             h = youbot_drive(vrep, h, 0, 0, rotateRightVel);
@@ -112,6 +114,48 @@ function drop(centerBasket, vrep, id)
     h = youbot_init(vrep, id);
     h = youbot_hokuyo_init(vrep, h);
     h = youbot_drive(vrep, h, 0, 0, 0);
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    [res, armRefToXyzSensor] = vrep.simxGetObjectPosition(id, h.xyzSensor, h.armRef, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep, res);
+    rotationx = [1,0,0,0;...
+                0,cosd(90),-sind(90),0;...
+                0,sind(90), cosd(90), 0;...
+                0,0,0,1];
+    rotationz1 = [cosd(90),-sind(90),0,0;...
+                sind(90),cosd(90),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+    translation = [1,0,0,armRefToXyzSensor(1);...
+                   0,1,0,armRefToXyzSensor(2);...
+                   0,0,1,armRefToXyzSensor(3);...
+                   0,0,0,1];
+    rotationz2 = [cos(pi/2),-sin(pi/2),0,0;...
+                sin(pi/2),cos(pi/2),0,0;...
+                0,0,1,0;...
+                0,0,0,1];
+            
+    
+    NewCenter = [-0.001,-0.259,0.18];% z = 0.2072 precedement
+    res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep,res);
+    res = vrep.simxSetIntegerSignal(id, 'km_mode', 2, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep, res, true);
+        
+    % move the tip of the arm 
+    res = vrep.simxSetObjectPosition(id, h.ptarget, h.armRef, NewCenter, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep,res);
+    pause(3);
+    res = vrep.simxSetIntegerSignal(id, 'km_mode', 0, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep,res);
+    res = vrep.simxSetIntegerSignal(id, 'gripper_open', 0, vrep.simx_opmode_oneshot_wait);
+    vrchk(vrep,res);
+    pause(2);
+    for i = 1:5
+                res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints1(i), vrep.simx_opmode_oneshot);
+                vrchk(vrep, res, true);
+    end
+    pause(3);
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     for i = 1:5
         res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), droppingJoints(i), vrep.simx_opmode_oneshot);
         vrchk(vrep, res, true);
@@ -120,4 +164,10 @@ function drop(centerBasket, vrep, id)
     % Open the gripper now
     res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
     vrchk(vrep,res);
+    pause(3);
+    for i = 1:5
+                res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints3(i), vrep.simx_opmode_oneshot);
+                vrchk(vrep, res, true);
+    end
+    
 end

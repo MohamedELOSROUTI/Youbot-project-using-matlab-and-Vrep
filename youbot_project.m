@@ -275,40 +275,16 @@ function youbot_project()
                 d_from_center = vectnorm(centersStrong_m - [25 25], 2);
                 [~, indexes] = mink(d_from_center, 2);
 
-                tables = centersStrong_m(indexes,:);
+                tables_map = centersStrong_m(indexes,:);
                 centersStrong_m(indexes,:) = [];
-                baskets = centersStrong_m;
+                baskets_map = centersStrong_m;
 
                 % Generate points around one table in matrix
                 % aroundCenterTablePoints
-                radiusFromCenterTable = [0;1] ; % set to 1 > radTable (because inflate)
-                radiusFromCenterBaskets = radiusFromCenterTable;
-                N = 10;
-                Rot = [cosd(360/N), -sind(360/N);...
-                       sind(360/N), cosd(360/N)];
-                aroundCenterTablePoints = radiusFromCenterTable;
-                for j = 2:N
-                    aroundCenterTablePoints(:,j) = Rot*...
-                                      aroundCenterTablePoints(:,j-1);
-                end
-                aroundCenterTablePoints1 = aroundCenterTablePoints + tables(1,:)';
-                aroundCenterTablePoints2 = aroundCenterTablePoints + tables(2,:)';
-                aroundCenterBasketPoints = aroundCenterTablePoints + baskets(1,:)'; % focus only on one basket
-                distances1 = zeros(N,1); % distance from youbot to table 1
-                distances2 = zeros(N,1); %                               2
-                distanceBasket = zeros(N,1); % distance from youbot to given basket
-                tables = tables-25 + originPos(1:2);
-                baskets = baskets-25 + originPos(1:2);
-                for j = 1:N
-                    distances1(j) = norm(aroundCenterTablePoints1(:,j)-youbotPos_map(1:2)');
-                    distances2(j) = norm(aroundCenterTablePoints2(:,j)-youbotPos_map(1:2)');
-                    distanceBasket(j) = norm(aroundCenterBasketPoints(:,j)-youbotPos_map(1:2)');
-                end
-                indexMin1 = distances1 == min(distances1); % closest point to table 1 from youbot
-                indexMin2 = distances2 == min(distances2); % closest point to table 2 from youbot
-                indexMinBasket = distanceBasket == min(distanceBasket); % closest point to table 2 from youbot
-                tablesClosestPoints = [aroundCenterTablePoints1(:,indexMin1)';aroundCenterTablePoints2(:,indexMin2)'];
-                basketClosestPoint = aroundCenterBasketPoints(:,indexMinBasket)';
+                r = 1;                
+                tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,1);...
+                    compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,1)]; % on les garde
+                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,1); % on les garde
                 % Find the closest point from youbot for table 1
 
                 subplot(1,2,2);
@@ -317,23 +293,58 @@ function youbot_project()
                 % tablePos = [-3,-5]; % Normally has to be derived from mappping
                 % tablePos_map = tablePos(1:2) - originPos(1:2) + mapSize/2;
                 prm.update()
+                tables = tables_map-25 + originPos(1:2); % on les garde
+                baskets = baskets_map-25 + originPos(1:2); % on les garde
                 startl = youbotPos_map(1:2);
             end
-            try 
-                
-                path = findpath(prm, double(startl), double(tablesClosestPoints(1,:)));
-                handling_error = false;
-            catch
-                handling_error = true;
-                disp("handling error")
-                disp('locateTableBaskets state')
-                bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
-                path = [startl;bckp_pt(1:2)];     
+            k=1;
+            while true
+                try 
+
+                    path = findpath(prm, double(startl), double(tablesClosestPoints(1,:)));
+                    handling_error = false;
+                    r=1;
+                    k = 1;
+                    break;
+                catch ME
+                    if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
+                        disp('handling_error')
+                        handling_error = true;
+                        if k <=10
+                            
+                            tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                            k = k+1;
+                        else
+                            r = r + 0.1; % increase the radius of the goal
+                            k = 1;
+                        end
+                    elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
+                        disp("handling error")
+                        disp('locateTableBaskets state')
+                        handling_error = true;
+                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                        path = [startl;bckp_pt(1:2)];
+                        break;
+                    else
+                        disp('handling_error')
+                        handling_error = true;
+                        if k <=10
+                            
+                            tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                            k = k+1;
+                        else
+                            r = r + 0.1; % increase the radius of the goal
+                            k = 1;
+                        end
+                    end
+                end
             end
             path = path - 25 + originPos(1:2);
             
             controller.Waypoints = path;
-            controller.DesiredLinearVelocity = 0.2;
+            controller.DesiredLinearVelocity = 0.6; % set to 0.2 by default
             for i=2:size(path, 1)
                 targets_q.push(path(i,:));
             end
@@ -363,44 +374,6 @@ function youbot_project()
             if nb_iter > stop_iter + 20
                 fsm = 'locateTablesBaskets';
             end
-% % %         elseif strcmp(fsm, 'goTable')
-            
-% % %             figure;
-% % %             show(prm);
-% % %             title('Path to table')
-% % %             while( distanceToTable > goalRadiusTable)
-% % %                 start_loop1 = tic;
-% % %                 % Compute the controller outputs, i.e., the inputs to the robot
-% % %                 % Simulate the robot using the controller outputs.
-% % %                 % exprimer robotvel(1) and robotvel(2) and orientation (par
-% % %                 % rapport robot)
-% % %                 % en fonction de v et omega (par rapprot axes absolus)
-% % % 
-% % %     
-% % %                 [v, omega] = controllerGoTable([youbotPos(1:2), wrapTo2Pi(wrapTo2Pi(youbotEuler(3))-pi/2)]);
-% % %                 v = -v;
-% % % 
-% % %                 h = youbot_drive(vrep, h, v, 0, omega);
-% % %  
-% % % 
-% % %                 % Extract current location information ([X,Y]) from the current pose of the
-% % %                 [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
-% % %                 vrchk(vrep, res);
-% % %                 [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
-% % %                 vrchk(vrep, res);              
-% % %                 distanceToTable = norm(youbotPos(1:2)-tablePos);
-% % %                 ellapsed = toc(start_loop1);
-% % %                 remaining = timestep - ellapsed;
-% % %                 % time control
-% % %                 if remaining > 0
-% % %                     pause(min(remaining, .01));
-% % %                 end
-% % %             
-% % %             end
-% % %             h = youbot_init(vrep, id);
-% % %             h = youbot_hokuyo_init(vrep, h);
-% % %             h = youbot_drive(vrep, h, 0, 0, 0);
-% % %             pause(0.01);
             
          elseif strcmp(fsm, 'grasp')
              % choose the closest table
@@ -411,22 +384,57 @@ function youbot_project()
             end
             
             if ~handling_error
-                stateObject = grasp(selectedTable,vrep,h,id,false);
+                store = true;
+                stateObject = grasp(selectedTable,vrep,h,id,store);
             end
             % fsm = 'end';
             if strcmp(stateObject, 'Picked')
                 fsm = 'goBasket';
                 prm.update()
                 startl = youbotPos_map(1:2);
-                try       
-                    path = findpath(prm, double(startl), double(basketClosestPoint)); % table 2 now
-                    handling_error = false;
-                catch
-                    disp("handling error")
-                    disp('goBasket fsm');
-                    handling_error = true;
-                    bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
-                    path = [startl;bckp_pt(1:2)];     
+                while true
+                    try       
+                        path = findpath(prm, double(startl), double(basketClosestPoint)); % table 2 now
+                        handling_error = false;
+                        r = 1;
+                        k = 1;
+                        break;
+                    catch ME
+                        if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
+                            disp("handling error")
+                            disp('goBasket fsm');
+                            handling_error = true;
+                            if k <= 10
+                                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,k);
+                                k = k+1;
+                            else
+                                r = r+0.1;
+                                k = 1;
+                                
+                            end
+                            
+
+                        elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
+                            disp("handling error")
+                            disp('goBasket fsm');
+                            handling_error = true;
+                            bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                            path = [startl;bckp_pt(1:2)];
+                            break;
+                        else
+                            disp("handling error")
+                            disp('goBasket fsm');
+                            handling_error = true;
+                            if k <= 10
+                                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,k);
+                                k = k+1;
+                            else
+                                r = r+0.1;
+                                k = 1;
+                                
+                            end
+                        end
+                    end
                 end
                 path = path - 25 + originPos(1:2);
                 controller.Waypoints = path;
@@ -441,16 +449,51 @@ function youbot_project()
 
                     prm.update()
                     startl = youbotPos_map(1:2);
-                    try         
-                        path = findpath(prm, double(startl), double(tablesClosestPoints(2,:))); % table 2 now
-                        tableNumber = '2';
-                        handling_error = false;
-                    catch
-                        disp("handling error")
-                        disp('goTable fsm');
-                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
-                        path = [startl;bckp_pt(1:2)];
-                        handling_error = true;
+                    while true
+                        try         
+                            path = findpath(prm, double(startl), double(tablesClosestPoints(2,:))); % table 2 now
+                            tableNumber = '2';
+                            handling_error = false;
+                            r = 1;
+                            k = 1;
+                            break;
+                        catch ME
+                            if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
+                                disp("handling error")
+                                disp('goTable fsm');
+                                handling_error = true;
+                                if k <= 10
+                                    tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                                    k = k +1;
+                                else
+                                    r = r + 0.1;
+                                    k = 1;
+                                end
+                                
+                                
+                            elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
+                                disp("handling error")
+                                disp('goTable fsm');
+                                bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                                path = [startl;bckp_pt(1:2)];
+                                handling_error = true;   
+                                break;
+                            else
+                                disp("handling error")
+                                disp('goTable fsm');
+                                handling_error = true;
+                                if k <= 10
+                                    tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                                    k = k +1;
+                                else
+                                    r = r + 0.1;
+                                    k = 1;
+                                end 
+                            end
+                            
+                        end
                     end
                     path = path - 25 + originPos(1:2);
 
@@ -526,6 +569,7 @@ function youbot_project()
                 % no more to discover in the map => go next
                 if strcmp(fsm, 'computePath')
                     passedPoints = [passedPoints ; youbotPos_map(1:2)];
+                    
                     
                     
                     mat = occupancyMatrix(map, 'ternary');
