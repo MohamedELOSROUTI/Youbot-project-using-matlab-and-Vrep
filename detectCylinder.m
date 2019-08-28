@@ -11,9 +11,14 @@ function [center, Found] = detectCylinder(pts)
     referenceVector = [0,1,0];
     maxDistance = 0.005;
     tic;
-    [model, inlierIndices] = pcfitcylinder(ptCloud,...
-                maxDistance,referenceVector,...
-                'Confidence', 80);
+    try
+        [model, inlierIndices] = pcfitcylinder(ptCloud,...
+                    maxDistance,referenceVector,...
+                    'Confidence', 80);
+    catch
+        Found = 0;
+        model.Radius = 1;
+    end
     i=1;
     if size(inlierIndices,1) < 40
         Found = 0;

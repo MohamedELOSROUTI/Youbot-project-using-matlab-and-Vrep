@@ -135,7 +135,7 @@ function drop(centerBasket, vrep, id)
                 0,0,0,1];
             
     
-    NewCenter = [-0.001,-0.259,0.18];% z = 0.2072 precedement
+    NewCenter = [-0.001,-0.258,0.18];% z = 0.2072 precedement
     res = vrep.simxSetIntegerSignal(id, 'gripper_open', 1, vrep.simx_opmode_oneshot_wait);
     vrchk(vrep,res);
     res = vrep.simxSetIntegerSignal(id, 'km_mode', 2, vrep.simx_opmode_oneshot_wait);

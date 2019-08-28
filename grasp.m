@@ -236,6 +236,7 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                stateObject = 'too far';
            else
                stateObject = 'reachable';
+               
            end
            
         if strcmp(stateObject,'reachable')

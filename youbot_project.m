@@ -295,8 +295,9 @@ function youbot_project()
                 prm.update()
                 tables = tables_map-25 + originPos(1:2); % on les garde
                 baskets = baskets_map-25 + originPos(1:2); % on les garde
-                startl = youbotPos_map(1:2);
+                
             end
+            startl = youbotPos_map(1:2);
             k=1;
             while true
                 try 
