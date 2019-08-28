@@ -281,10 +281,11 @@ function youbot_project()
 
                 % Generate points around one table in matrix
                 % aroundCenterTablePoints
-                r = 1;                
+                r = 1;
+                basketNumber = 1;
                 tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,1);...
                     compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,1)]; % on les garde
-                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,1); % on les garde
+                basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,1); % on les garde
                 % Find the closest point from youbot for table 1
 
                 subplot(1,2,2);
@@ -299,10 +300,18 @@ function youbot_project()
             end
             startl = youbotPos_map(1:2);
             k=1;
+            distanceYoubotToTable1 = norm(youbotPos(1:2) - tables(1,:));
+            distanceYoubotToTable2 = norm(youbotPos(1:2) - tables(2,:));
+            if distanceYoubotToTable1 > distanceYoubotToTable2
+                tableNumber = 2;
+            else
+                tableNumber = 1;
+            end
+            
             while true
                 try 
 
-                    path = findpath(prm, double(startl), double(tablesClosestPoints(1,:)));
+                    path = findpath(prm, double(startl), double(tablesClosestPoints(tableNumber,:)));
                     handling_error = false;
                     r=1;
                     k = 1;
@@ -313,8 +322,8 @@ function youbot_project()
                         handling_error = true;
                         if k <=10
                             
-                            tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
-                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                            tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
                             k = k+1;
                         else
                             r = r + 0.1; % increase the radius of the goal
@@ -332,8 +341,8 @@ function youbot_project()
                         handling_error = true;
                         if k <=10
                             
-                            tablesClosestPoints = [compute_around_closest_point(tables_map(1,:),r,youbotPos_map,10,k);...
-                            compute_around_closest_point(tables_map(2,:),r,youbotPos_map,10,k)];
+                            tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                            compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
                             k = k+1;
                         else
                             r = r + 0.1; % increase the radius of the goal
@@ -351,7 +360,7 @@ function youbot_project()
             end
             cur_target = targets_q.front();
             fsm = 'goTable';
-            tableNumber = '1';
+
             disp('GoTable')
         elseif strcmp(fsm, 'matchFeatures')
             %% Match baskets features
@@ -378,7 +387,7 @@ function youbot_project()
             
          elseif strcmp(fsm, 'grasp')
              % choose the closest table
-            if strcmp(tableNumber, '1')
+            if tableNumber == 1
                 selectedTable = tables(1,:); 
             else
                  selectedTable = tables(2,:);
@@ -393,6 +402,7 @@ function youbot_project()
                 fsm = 'goBasket';
                 prm.update()
                 startl = youbotPos_map(1:2);
+                basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,1);
                 while true
                     try       
                         path = findpath(prm, double(startl), double(basketClosestPoint)); % table 2 now
@@ -406,7 +416,7 @@ function youbot_project()
                             disp('goBasket fsm');
                             handling_error = true;
                             if k <= 10
-                                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,k);
+                                basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,k);
                                 k = k+1;
                             else
                                 r = r+0.1;
@@ -427,7 +437,7 @@ function youbot_project()
                             disp('goBasket fsm');
                             handling_error = true;
                             if k <= 10
-                                basketClosestPoint = compute_around_closest_point(baskets_map(1,:),r,youbotPos_map,10,k);
+                                basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,k);
                                 k = k+1;
                             else
                                 r = r+0.1;
@@ -445,7 +455,7 @@ function youbot_project()
                 end
                 cur_target = targets_q.front();
             else
-                if strcmp(tableNumber, '1') % if table number was 1
+                if tableNumber == 1 % if table number was 1
                     fsm = 'goTable'; % go to the other table
 
                     prm.update()
@@ -453,7 +463,7 @@ function youbot_project()
                     while true
                         try         
                             path = findpath(prm, double(startl), double(tablesClosestPoints(2,:))); % table 2 now
-                            tableNumber = '2';
+                            tableNumber = 2;
                             handling_error = false;
                             r = 1;
                             k = 1;
@@ -512,14 +522,77 @@ function youbot_project()
                     
             end
         elseif strcmp(fsm, 'drop')
-            basket1 = baskets(1,:);
+            
+            basket1 = baskets(basketNumber,:);
             drop(basket1, vrep, id); 
-            fsm = 'end';
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            startl = youbotPos_map(1:2);
+            k=1;
+            if basketNumber < 5
+                while true
+                    try 
+
+                        path = findpath(prm, double(startl), double(tablesClosestPoints(tableNumber,:)));
+                        handling_error = false;
+                        r=1;
+                        k = 1;
+                        break;
+                    catch ME
+                        if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
+                            disp('handling_error')
+                            handling_error = true;
+                            if k <=10
+
+                                tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                                compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
+                                k = k+1;
+                            else
+                                r = r + 0.1; % increase the radius of the goal
+                                k = 1;
+                            end
+                        elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
+                            disp("handling error")
+                            disp('locateTableBaskets state')
+                            handling_error = true;
+                            bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                            path = [startl;bckp_pt(1:2)];
+                            break;
+                        else
+                            disp('handling_error')
+                            handling_error = true;
+                            if k <=10
+
+                                tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                                compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
+                                k = k+1;
+                            else
+                                r = r + 0.1; % increase the radius of the goal
+                                k = 1;
+                            end
+                        end
+                    end
+                end
+                path = path - 25 + originPos(1:2);
+
+                controller.Waypoints = path;
+                controller.DesiredLinearVelocity = 0.6; % set to 0.2 by default
+                for i=2:size(path, 1)
+                    targets_q.push(path(i,:));
+                end
+                cur_target = targets_q.front();
+                basketNumber = basketNumber + 1;
+                fsm = 'goTable';
+            else
+                fsm = 'end';
+            end
+            
+            %fsm = 'goTable';
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         elseif strcmp(fsm, 'end')
         end
         
         %% Robot driving
-        % If encounter final goal
+        % If encounter final goal %% we can start here and load('')
         if ~isempty(path)
             % In case we are on the goal
             if norm(youbotPos(1:2) - path(end,:)) < 0.05

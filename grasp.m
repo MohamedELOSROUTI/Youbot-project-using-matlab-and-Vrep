@@ -73,24 +73,10 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                                  0,0,1,youbotRefToXyzSensor(3);...
                                  0,0,0,1];
         
-               
-    Roty = [cosd(90),0,sind(90),0;...
-            0,1,0,0;...
-            -sind(90),0,cosd(90),0;...
-            0,0,0,1];
-        
     Roty2 = [cosd(-90),0,sind(-90),0;...
             0,1,0,0;...
             -sind(-90),0,cosd(-90),0;...
             0,0,0,1];
-%     Rotz = [cosd(90),-sind(90),0,0;...
-%                 sind(90),cosd(90),0,0;...
-%                 0,0,1,0;...
-%                 0,0,0,1];
-%     trans = [1,0,0,youbotToArmRef(1);...
-%              0,1,0,youbotToArmRef(2);...
-%              0,0,1,youbotToArmRef(3);...
-%              0,0,0,1];
          
     RotzRefToXYZ = [cosd(180),-sind(180),0,0;...
                 sind(180),cosd(180),0,0;...
@@ -100,16 +86,13 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                 0,cosd(-90),-sind(-90),0;...
                 0,sind(-90), cosd(-90), 0;...
                 0,0,0,1];
-    
-    %centerTable = [-3,-6];
-    
+    tryNumber = 1 ; % [1,4] : we let 4 chances to the youbot to find a cylinder or cube if this has been unfounder previously     
     % Let a few cycles pass to make sure there's a value waiting for us next time we try to get a joint angle or 
     % the robot pose with the simx_opmode_buffer option.
     pause(.2);
     
     % Definition of the starting pose of the arm (the angle to impose at each joint to be in the rest position).
     %placingJoints = [0, 30.91 * pi / 180, 52.42 * pi / 180, 72.68 * pi / 180, 0];
-    placingJoints3 = [0, -1 * pi / 180, 90 * pi / 180, 0 * pi / 180, 0]; 
     placingJoints2 = [0, -1 * pi / 180, 120 * pi / 180, 0 * pi / 180, 0];
     placingJoints1 = [0, 0 * pi / 180, 0 * pi / 180, 0 * pi / 180, 0];
     %% Preset values for the demo. 
@@ -236,7 +219,6 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                stateObject = 'too far';
            else
                stateObject = 'reachable';
-               
            end
            
         if strcmp(stateObject,'reachable')
@@ -259,11 +241,12 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             disp('Moving gripper ...');
             pause(2);
             disp('Grasping ...');
-            res = vrep.simxSetIntegerSignal(id, 'gripper_open', 0, vrep.simx_opmode_oneshot_wait);
-            vrchk(vrep,res);
-            pause(5);
+            
             res = vrep.simxSetIntegerSignal(id, 'km_mode', 0, vrep.simx_opmode_oneshot_wait);
             vrchk(vrep,res);
+            res = vrep.simxSetIntegerSignal(id, 'gripper_open', 0, vrep.simx_opmode_oneshot_wait);
+            vrchk(vrep,res);
+            pause(3);
             for i = 1:5
                 res = vrep.simxSetJointTargetPosition(id, h.armJoints(i), placingJoints1(i), vrep.simx_opmode_oneshot);
                 vrchk(vrep, res, true);
@@ -309,7 +292,8 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             h = youbot_drive(vrep, h, 0, 0, 0);
             break;
         elseif strcmp(stateObject,'too far')
-                disp('Cylinder too far, moving towards ...');
+            tryNumber = tryNumber + 1;
+            disp('Cylinder too far, moving towards ...');
                 
                 % NewCenter in youbot axis 
             % NewCenterYoubot = trans*Roty*Rotz*[NewCenter,1]'; % Don't
@@ -327,11 +311,7 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
              0,0,0,1];
              vrchk(vrep, res);
              
-            NewCenterRef =  transRefxyzSensor*...
-                            rotationz2*...
-                            RotxRefToXYZ*...
-                            RotzRefToXYZ*...
-                            [center(1);center(2);center(3);1];
+           
             centerTableYoubot = youbotPos(1:2) - centerTable;
             N = 50; % 50
             aroundcenterTablePointsPos = centerTableYoubot(1:2)';
@@ -358,8 +338,8 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             for j = 1:N
                 distancesPos(j) = norm(aroundcenterTablePointsPos(:,j)-NewCenterAbsuluteAxis(1:2));
                 distancesNeg(j) = norm(aroundcenterTablePointsNeg(:,j)-NewCenterAbsuluteAxis(1:2));
-
             end
+            
             indexMinPos = find(distancesPos == min(distancesPos));
             indexMinNeg = find(distancesNeg == min(distancesNeg));
             
@@ -432,8 +412,85 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
             
             else
                 disp('Object Not Found after scanning all angles')
-                stateObject = 'Unpicked';
-                 break
+                if tryNumber >= 4
+                    stateObject = 'Unpicked';
+                    break
+                else
+                    tryNumber = tryNumber + 1;
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    
+                    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                    vrchk(vrep, res);
+                     
+                    centerTableYoubot = youbotPos(1:2) - centerTable;
+                    N = 50; % 50
+                    
+                    aroundcenterTablePoints = centerTableYoubot(1:2)';
+
+
+                    Rot = [cosd(360/N), -sind(360/N);...
+                           sind(360/N), cosd(360/N)];
+
+                    for j = 2:N
+                        aroundcenterTablePoints(:,j) = Rot*...
+                                          aroundcenterTablePoints(:,j-1);
+                    end
+                    aroundcenterTablePoints = aroundcenterTablePoints+centerTable';
+                    aroundcenterTablePoints = aroundcenterTablePoints(:,1:floor(N/4));
+                    controller1 = robotics.PurePursuit('DesiredLinearVelocity',...
+                                               0.05,... %0.02 %0.05
+                                                'LookaheadDistance',...
+                                               0.02,...
+                                               'MaxAngularVelocity',...
+                                               0.08,... %0.02 %0.02
+                                               'Waypoints',...
+                                               aroundcenterTablePoints');
+                                           
+                            
+                   goalRadius1 = 0.2; % 0.3
+                   distanceToGoal1 = norm(youbotPos(1:2)'-aroundcenterTablePoints(:,end));
+
+                   while( distanceToGoal1 > goalRadius1)
+                    start_loop1 = tic;
+                    % Compute the controller outputs, i.e., the inputs to the robot
+                    % Simulate the robot using the controller outputs.
+                    % exprimer robotvel(1) and robotvel(2) and orientation (par
+                    % rapport robot)
+                    % en fonction de v et omega (par rapprot axes absolus)
+
+        % 
+                   
+
+                    [v, omega] = controller1([youbotPos(1:2),wrapTo2Pi(wrapTo2Pi(wrapTo2Pi(youbotEuler(3))+pi)-pi/2)]);
+
+                    
+
+
+                    h = youbot_drive(vrep, h, v, 0, omega);
+
+                    % Extract current location information ([X,Y]) from the current pose of the
+                    [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+                    vrchk(vrep, res);
+                    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                    vrchk(vrep, res);              
+                    distanceToGoal1 = norm(youbotPos(1:2)' - aroundcenterTablePoints(:,end));
+                    ellapsed = toc(start_loop1);
+                    remaining = timestep - ellapsed;
+                    % time control
+                    if remaining > 0
+                        pause(min(remaining, .01));
+                    end
+
+                   end
+                   h = youbot_init(vrep, id);
+                   h = youbot_hokuyo_init(vrep, h);
+                   h = youbot_drive(vrep, h, 0, 0, 0);
+                   pause(0.01);
+
+                   i=1;
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    
+                end
             end
         end
    end
