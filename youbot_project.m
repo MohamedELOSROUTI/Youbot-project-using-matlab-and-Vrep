@@ -395,12 +395,14 @@ function youbot_project()
             
             if ~handling_error
                 store = true;
-                stateObject = grasp(selectedTable,vrep,h,id,store);
+                [stateObject,youbotPos] = grasp(selectedTable,vrep,h,id,store);
+                youbotPos_map = youbotPos - originPos + [mapSize/2 0];
             end
             % fsm = 'end';
             if strcmp(stateObject, 'Picked')
                 fsm = 'goBasket';
                 prm.update()
+                
                 startl = youbotPos_map(1:2);
                 basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,1);
                 while true

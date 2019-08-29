@@ -395,12 +395,14 @@ function youbot_project()
             
             if ~handling_error
                 store = true;
-                stateObject = grasp(selectedTable,vrep,h,id,store);
+                [stateObject,youbotPos] = grasp(selectedTable,vrep,h,id,store);
+                youbotPos_map = youbotPos - originPos + [mapSize/2 0];
             end
             % fsm = 'end';
             if strcmp(stateObject, 'Picked')
                 fsm = 'goBasket';
                 prm.update()
+                
                 startl = youbotPos_map(1:2);
                 basketClosestPoint = compute_around_closest_point(baskets_map(basketNumber,:),r,youbotPos_map,10,1);
                 while true
@@ -529,71 +531,70 @@ function youbot_project()
             startl = youbotPos_map(1:2);
             k=1;
             if basketNumber < 5
-            while true
-                try 
+                while true
+                    try 
 
-                    path = findpath(prm, double(startl), double(tablesClosestPoints(tableNumber,:)));
-                    handling_error = false;
-                    r=1;
-                    k = 1;
-                    break;
-                catch ME
-                    if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
-                        disp('handling_error')
-                        handling_error = true;
-                        if k <=10
-                            
-                            tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
-                            compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
-                            k = k+1;
-                        else
-                            r = r + 0.1; % increase the radius of the goal
-                            k = 1;
-                        end
-                    elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
-                        disp("handling error")
-                        disp('locateTableBaskets state')
-                        handling_error = true;
-                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
-                        path = [startl;bckp_pt(1:2)];
+                        path = findpath(prm, double(startl), double(tablesClosestPoints(tableNumber,:)));
+                        handling_error = false;
+                        r=1;
+                        k = 1;
                         break;
-                    else
-                        disp('handling_error')
-                        handling_error = true;
-                        if k <=10
-                            
-                            tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
-                            compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
-                            k = k+1;
+                    catch ME
+                        if strcmp(ME.message,"Invalid 'goal' location. The location is occupied.")
+                            disp('handling_error')
+                            handling_error = true;
+                            if k <=10
+
+                                tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                                compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
+                                k = k+1;
+                            else
+                                r = r + 0.1; % increase the radius of the goal
+                                k = 1;
+                            end
+                        elseif strcmp(ME.message,"Invalid 'start' location. The location is occupied.")
+                            disp("handling error")
+                            disp('locateTableBaskets state')
+                            handling_error = true;
+                            bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                            path = [startl;bckp_pt(1:2)];
+                            break;
                         else
-                            r = r + 0.1; % increase the radius of the goal
-                            k = 1;
+                            disp('handling_error')
+                            handling_error = true;
+                            if k <=10
+
+                                tablesClosestPoints = [compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k);...
+                                compute_around_closest_point(tables_map(tableNumber,:),r,youbotPos_map,10,k)];
+                                k = k+1;
+                            else
+                                r = r + 0.1; % increase the radius of the goal
+                                k = 1;
+                            end
                         end
                     end
                 end
-            end
-            path = path - 25 + originPos(1:2);
-            
-            controller.Waypoints = path;
-            controller.DesiredLinearVelocity = 0.6; % set to 0.2 by default
-            for i=2:size(path, 1)
-                targets_q.push(path(i,:));
-            end
-            cur_target = targets_q.front();
-            bas
-            if basketNumber < 5
+                path = path - 25 + originPos(1:2);
+
+                controller.Waypoints = path;
+                controller.DesiredLinearVelocity = 0.6; % set to 0.2 by default
+                for i=2:size(path, 1)
+                    targets_q.push(path(i,:));
+                end
+                cur_target = targets_q.front();
                 basketNumber = basketNumber + 1;
                 fsm = 'goTable';
             else
                 fsm = 'end';
             end
+            
             %fsm = 'goTable';
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         elseif strcmp(fsm, 'end')
         end
         
         %% Robot driving
-        % If encounter final goal
+        % If encounter final goal %% we can start here and load('')
         if ~isempty(path)
             % In case we are on the goal
             if norm(youbotPos(1:2) - path(end,:)) < 0.05

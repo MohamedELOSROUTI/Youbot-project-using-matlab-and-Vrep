@@ -1,4 +1,4 @@
-function [stateObject] = grasp(centerTable,vrep,h,id,store)
+function [stateObject,youbotPos] = grasp(centerTable,vrep,h,id,store)
     %% Function that takes as input the center of the table
     %  returns stateObject which takes 2 values :
     % 1. 'Piched' : The robot managed to find a cylinder and has taken it
@@ -414,7 +414,31 @@ function [stateObject] = grasp(centerTable,vrep,h,id,store)
                 disp('Object Not Found after scanning all angles')
                 if tryNumber >= 4
                     stateObject = 'Unpicked';
-                    break
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                    vrchk(vrep, res);
+                    X = youbotPos(1:2) + (youbotPos(1:2)-centerTable)/1.5;
+                    YoubotPosToXVec = X - youbotPos(1:2);
+                    e = YoubotPosToXVec/norm(YoubotPosToXVec);
+                    while (YoubotPosToXVec*e' > 0)
+                        start_loop4 = tic;
+                        YoubotPosToXVec = X - youbotPos(1:2);
+
+                        h = youbot_drive(vrep, h, 0, 0.05, 0);
+                        [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+                        vrchk(vrep, res);
+                        ellapsed = toc(start_loop4);
+                        remaining = timestep - ellapsed;
+                        if remaining > 0
+                                pause(min(remaining, .01));
+                        end
+                    end
+                    h = youbot_init(vrep, id);
+                    h = youbot_hokuyo_init(vrep, h);
+                    h = youbot_drive(vrep, h, 0, 0, 0);
+                    break;
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    
                 else
                     tryNumber = tryNumber + 1;
                     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
