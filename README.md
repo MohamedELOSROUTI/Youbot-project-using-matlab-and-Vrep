@@ -30,7 +30,7 @@ To make it easier to use we have defined 4 frames
 
 In the end, we can define some frame transfer functions : 
    
-![](https://i.imgur.com/f1c7DiW.png =600x)
+![](https://i.imgur.com/f1c7DiW.png)
 
 To achieve mapping and navigating inside the house we mainly use the MATLAB’s Robotics
 System Toolbox.
