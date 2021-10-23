@@ -1,19 +1,17 @@
 function youbot_project()
     clc, clearvars, close all
 
-    run('..\..\matlab\startup_robot.m')
+    run('C:\Users\elosr\IntelligentRoboticsProject\trs\matlab\startup_robot.m')
     
     
     %% Parameters
-    use_getPosition = true;
     plot_data = true;
     mapping = true;
     
     nb_iter = 0;
-    nb_iter_per_plot = 5;
-    
+    nb_iter_per_plot = 10;
     front_angle = 5*pi/180; %degrees
-    robot_radius = 0.3;
+    robot_radius = 0.35;
     prevPMaxRange = 5;
     passedPoints = [];
     closePP_map = [];
@@ -26,14 +24,17 @@ function youbot_project()
     path = [];
     repath = true;
     
+    tables = [];
+    baskets = [];
+    
     
     mapping_fig = figure('Name', 'Mapping figure');
     set(gcf, 'position', [10 10 980 520]);
-    
+    handling_error = false;
 
     %% Initiate the connection to the simulator. 
     disp('Program started');
-    
+    addpath('C:\Users\elosr\IntelligentRoboticsProject\trs\youbot');
     vrep = remApi('remoteApi');
     vrep.simxFinish(-1);
     id = vrep.simxStart('127.0.0.1', 19997, true, true, 2000, 5);
@@ -62,7 +63,7 @@ function youbot_project()
     timestep = .05;
     % Parameters for controlling the youBot's wheels: at each iteration, those values will be set for the wheels. 
     % They are adapted at each iteration by the code. 
-    % Move straight ahead. 
+    % Move straight ahead.
     robotVel = [0,0]; % Go sideways. 
     rotateRightVel = 0; % Rotate. 
     prevOrientation = 0; % Previous angle to goal (easy way to have a condition on the robot's angular speed). 
@@ -74,6 +75,7 @@ function youbot_project()
     % Removed Dstar
     mapSize = [50 50];
     map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 8);
+    hires_map = robotics.OccupancyGrid(mapSize(1), mapSize(2), 40);
     [x, y] = meshgrid(linspace(-1, 1, 41));
     R = hypot(x, y);
     setOccupancy(map, 25+[x(R <= 2.5*robot_radius) y(R <= 2.5*robot_radius)], 0.1);
@@ -107,12 +109,12 @@ function youbot_project()
     
     % Finite State Machine first state
     fsm = 'firstLook';
-    
+    start1 = tic;
     %% Start
     disp('Enter loop')
     while true
         start_loop = tic;
-        
+        end1 = toc(start1);
         if vrep.simxGetConnectionId(id) == -1
             error('Lost connection to remote API.');
         end
@@ -134,7 +136,6 @@ function youbot_project()
         % Youbot position in map frame
         youbotPos_map = youbotPos - originPos + [mapSize/2 0];
         
-        
         %% Mapping
         if mapping
             
@@ -148,8 +149,11 @@ function youbot_project()
             r_pts = rotationMatrix*pts;
             
             % Update occupancy grid cases probabilities
-            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 10) + youbotPos_map(1:2), [0.2 0.5]);
+            insertRay(map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
             updateOccupancy(map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
+            % Update occupancy in the high resolution map
+            insertRay(hires_map, youbotPos_map(1:2), downsample(r_pts(1:2,:)', 15) + youbotPos_map(1:2), [0.2 0.5]);
+            updateOccupancy(hires_map, r_pts(1:2,contacts)' + youbotPos_map(1:2), 1);
             
         end
         
@@ -159,7 +163,7 @@ function youbot_project()
             %% First look
             % Enforce free and occupied probabilities in grid around youbot
             % original pose
-            if nb_iter == 2
+            if nb_iter == 10
                 fsm = 'computePath';
                 disp('Compute path');
             end
@@ -176,18 +180,7 @@ function youbot_project()
                 front_angle = 5*pi/180;
                 
                 startl = youbotPos_map(1:2);
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                % Première idée pour choisir un point aléatoire
-                %  Conditions :
-                %   * Rayon compris entre 3 et 4 m
-                %   * Dans un cone de 15° (vérifier si ça fonctionne, on
-                %   sait jamais)
-                %
-                %  -> Regarder les cases libres dans cette zone
-                %  -> Ajouter une boucle si on trouve pas de case
-                %  respectant ces conditions
-                %  ->
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
                 norms = vectnorm(youbotPos_map(1:2) - passedPoints, 2);
                 closePP = youbotPos_map(1:2) - passedPoints( 0.1 < norms & norms < prevPMaxRange ,:);
                 closePP_map = youbotPos_map(1:2) - closePP;
@@ -207,40 +200,54 @@ function youbot_project()
                 else 
                     sumprod_agls = youbotEuler(3);
                 end
-                sumprod_agls*180/pi
                 
                 
                 [x, y] = meshgrid(-4:0.2:4, 4:-0.2:-4);
                 R = hypot(x, y);
                 T = transformAngleRange( atan2(x, -y), -sumprod_agls, [-pi pi] );
                 
-                while isempty(free_cells)
-                    front_angle = front_angle + 5*pi/180;
-                    
-                    cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) ...
-                             y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
-                        + youbotPos_map(1:2);
-                    
-                    ij = unique(world2grid(imap, cells), 'rows');
-                    occ = checkOccupancy(imap, ij, 'grid');
-                    ij_occ = [ij occ];
-                    
-                    free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
-                end
-                endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
                 
                 % While cannot find path, add nodes
                 initialNumNodes = prm.NumNodes;
                 while isempty(path)
+                    while isempty(free_cells)
+                        front_angle = front_angle + 5*pi/180;
+
+                        cells = [x(R < 4 & R > 3 & abs(T) < 2*front_angle) ...
+                                 y(R < 4 & R > 3 & abs(T) < 2*front_angle)]...
+                            + youbotPos_map(1:2);
+
+                        ij = unique(world2grid(imap, cells), 'rows');
+                        occ = checkOccupancy(imap, ij, 'grid');
+                        ij_occ = [ij occ];
+
+                        free_cells = ij_occ( ij_occ(:,3) == 0 ,1:2);
+                    end
+                    
+                    
+                    endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:));
+                    
+                    
                     prm.NumNodes = prm.NumNodes + 5;
                     prm.update();
                     
-                    path = findpath(prm, double(startl), double(endl));
-                    if prm.NumNodes > initialNumNodes+50
-                        endl = grid2world( imap, free_cells(randi(size(free_cells, 1)),:) );
+                    try 
+                        path = findpath(prm, double(startl), double(endl));
+                    catch
+                        disp("Error handled")
+                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                        path = [startl;bckp_pt(1:2)];
+                        
+                        break
+                    end
+                    
+                    if prm.NumNodes > initialNumNodes+20
                         prm.NumNodes = initialNumNodes;
+                        
+                        free_cells = [];
                     end
                 end
+                
                 
                 % Pass path found to controller and targets_q
                 path = path - 25 + originPos(1:2);
@@ -253,23 +260,231 @@ function youbot_project()
                 % No need to repath yet
                 repath = false;
             end
+        elseif strcmp(fsm, 'locateTablesBaskets')
+            %% Locate baskets and tables
+            if ~handling_error
+                inflate(hires_map, robot_radius)
+                map_ = occupancyMatrix(hires_map, 'ternary');
+                [centers, radii, metric] = imfindcircles(map_, [30 40], 'ObjectPolarity', 'bright', 'Sensitivity', 1);
+                % we have to find a way to distinguish them now
+                centersStrong = centers(1:7,:);
+                centersStrong_m = flip([50 50] - grid2world(hires_map, round(centers(1:7,:))), 2);
+                radiiStrong = radii(1:7);
+                metricStrong = metric(1:7);
+
+                d_from_center = vectnorm(centersStrong_m - [25 25], 2);
+                [~, indexes] = mink(d_from_center, 2);
+
+                tables = centersStrong_m(indexes,:);
+                centersStrong_m(indexes,:) = [];
+                baskets = centersStrong_m;
+
+                % Generate points around one table in matrix
+                % aroundCenterTablePoints
+                radiusFromCenterTable = [0;1] ; % set to 1 > radTable (because inflate)
+                radiusFromCenterBaskets = radiusFromCenterTable;
+                N = 10;
+                Rot = [cosd(360/N), -sind(360/N);...
+                       sind(360/N), cosd(360/N)];
+                aroundCenterTablePoints = radiusFromCenterTable;
+                for j = 2:N
+                    aroundCenterTablePoints(:,j) = Rot*...
+                                      aroundCenterTablePoints(:,j-1);
+                end
+                aroundCenterTablePoints1 = aroundCenterTablePoints + tables(1,:)';
+                aroundCenterTablePoints2 = aroundCenterTablePoints + tables(2,:)';
+                aroundCenterBasketPoints = aroundCenterTablePoints + baskets(1,:)'; % focus only on one basket
+                distances1 = zeros(N,1); % distance from youbot to table 1
+                distances2 = zeros(N,1); %                               2
+                distanceBasket = zeros(N,1); % distance from youbot to given basket
+                tables = tables-25 + originPos(1:2);
+                baskets = baskets-25 + originPos(1:2);
+                for j = 1:N
+                    distances1(j) = norm(aroundCenterTablePoints1(:,j)-youbotPos_map(1:2)');
+                    distances2(j) = norm(aroundCenterTablePoints2(:,j)-youbotPos_map(1:2)');
+                    distanceBasket(j) = norm(aroundCenterBasketPoints(:,j)-youbotPos_map(1:2)');
+                end
+                indexMin1 = distances1 == min(distances1); % closest point to table 1 from youbot
+                indexMin2 = distances2 == min(distances2); % closest point to table 2 from youbot
+                indexMinBasket = distanceBasket == min(distanceBasket); % closest point to table 2 from youbot
+                tablesClosestPoints = [aroundCenterTablePoints1(:,indexMin1)';aroundCenterTablePoints2(:,indexMin2)'];
+                basketClosestPoint = aroundCenterBasketPoints(:,indexMinBasket)';
+                % Find the closest point from youbot for table 1
+
+                subplot(1,2,2);
+                imshow(map_)
+                viscircles(centersStrong, radiiStrong, 'EdgeColor', 'b');
+                % tablePos = [-3,-5]; % Normally has to be derived from mappping
+                % tablePos_map = tablePos(1:2) - originPos(1:2) + mapSize/2;
+                prm.update()
+                startl = youbotPos_map(1:2);
+            end
+            try 
+                
+                path = findpath(prm, double(startl), double(tablesClosestPoints(1,:)));
+                handling_error = false;
+            catch
+                handling_error = true;
+                disp("handling error")
+                disp('locateTableBaskets state')
+                bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                path = [startl;bckp_pt(1:2)];     
+            end
+            path = path - 25 + originPos(1:2);
             
+            controller.Waypoints = path;
+            controller.DesiredLinearVelocity = 0.2;
+            for i=2:size(path, 1)
+                targets_q.push(path(i,:));
+            end
+            cur_target = targets_q.front();
+            fsm = 'goTable';
+            tableNumber = '1';
+            disp('GoTable')
+        elseif strcmp(fsm, 'matchFeatures')
+            %% Match baskets features
+            
+            % Test de code pour trouver le point le plus près du centre du
+            % cercle pour y naviguer
+            % t = occupancyMatrix(imap, 'ternary');
+            % t2 = [400 400] - world2grid(map, baskets(i,:); % pas le même
+            % repère entre les deux
+            % t3 = t(t2(2)-10:t2(2)+10,t2(1)-10:t2(1)+10); carré autour du
+            % centre
+            % [x1, y1] = meshgrid(-10:1:10, 10:-1:-10)
+            % h = hypot(x1, y1);
+            % t3(t3 ~= 0) = inf;
+            % t3(t3 == 0) = h(t3 == 0);
+            % min(min(t3)) donne le point le plus près du center du cercle
+            
+        elseif strcmp(fsm, 'stop')
+            %% Stop youbot
+            
+            if nb_iter > stop_iter + 20
+                fsm = 'locateTablesBaskets';
+            end
+% % %         elseif strcmp(fsm, 'goTable')
+            
+% % %             figure;
+% % %             show(prm);
+% % %             title('Path to table')
+% % %             while( distanceToTable > goalRadiusTable)
+% % %                 start_loop1 = tic;
+% % %                 % Compute the controller outputs, i.e., the inputs to the robot
+% % %                 % Simulate the robot using the controller outputs.
+% % %                 % exprimer robotvel(1) and robotvel(2) and orientation (par
+% % %                 % rapport robot)
+% % %                 % en fonction de v et omega (par rapprot axes absolus)
+% % % 
+% % %     
+% % %                 [v, omega] = controllerGoTable([youbotPos(1:2), wrapTo2Pi(wrapTo2Pi(youbotEuler(3))-pi/2)]);
+% % %                 v = -v;
+% % % 
+% % %                 h = youbot_drive(vrep, h, v, 0, omega);
+% % %  
+% % % 
+% % %                 % Extract current location information ([X,Y]) from the current pose of the
+% % %                 [res, youbotEuler] = vrep.simxGetObjectOrientation(id, h.ref, -1, vrep.simx_opmode_buffer);
+% % %                 vrchk(vrep, res);
+% % %                 [res, youbotPos] = vrep.simxGetObjectPosition(id, h.ref, -1, vrep.simx_opmode_buffer);
+% % %                 vrchk(vrep, res);              
+% % %                 distanceToTable = norm(youbotPos(1:2)-tablePos);
+% % %                 ellapsed = toc(start_loop1);
+% % %                 remaining = timestep - ellapsed;
+% % %                 % time control
+% % %                 if remaining > 0
+% % %                     pause(min(remaining, .01));
+% % %                 end
+% % %             
+% % %             end
+% % %             h = youbot_init(vrep, id);
+% % %             h = youbot_hokuyo_init(vrep, h);
+% % %             h = youbot_drive(vrep, h, 0, 0, 0);
+% % %             pause(0.01);
+            
+         elseif strcmp(fsm, 'grasp')
+             % choose the closest table
+            if strcmp(tableNumber, '1')
+                selectedTable = tables(1,:); 
+            else
+                 selectedTable = tables(2,:);
+            end
+            
+            if ~handling_error
+                stateObject = grasp(selectedTable,vrep,h,id,false);
+            end
+            % fsm = 'end';
+            if strcmp(stateObject, 'Picked')
+                fsm = 'goBasket';
+                prm.update()
+                startl = youbotPos_map(1:2);
+                try       
+                    path = findpath(prm, double(startl), double(basketClosestPoint)); % table 2 now
+                    handling_error = false;
+                catch
+                    disp("handling error")
+                    disp('goBasket fsm');
+                    handling_error = true;
+                    bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                    path = [startl;bckp_pt(1:2)];     
+                end
+                path = path - 25 + originPos(1:2);
+                controller.Waypoints = path;
+                controller.DesiredLinearVelocity = 0.2;
+                for i=2:size(path, 1)
+                    targets_q.push(path(i,:));
+                end
+                cur_target = targets_q.front();
+            else
+                if strcmp(tableNumber, '1') % if table number was 1
+                    fsm = 'goTable'; % go to the other table
+
+                    prm.update()
+                    startl = youbotPos_map(1:2);
+                    try         
+                        path = findpath(prm, double(startl), double(tablesClosestPoints(2,:))); % table 2 now
+                        tableNumber = '2';
+                        handling_error = false;
+                    catch
+                        disp("handling error")
+                        disp('goTable fsm');
+                        bckp_pt = (rotationMatrix*[0;0.35;0])' + youbotPos - originPos + [mapSize/2 0];
+                        path = [startl;bckp_pt(1:2)];
+                        handling_error = true;
+                    end
+                    path = path - 25 + originPos(1:2);
+
+                    controller.Waypoints = path;
+                    controller.DesiredLinearVelocity = 0.2;
+                    for i=2:size(path, 1)
+                        targets_q.push(path(i,:));
+                    end
+                    cur_target = targets_q.front();
+                    
+                else
+                    fsm = 'end';
+                    disp('No object found on both tables');
+                end
+                    
+            end
+        elseif strcmp(fsm, 'drop')
+            basket1 = baskets(1,:);
+            drop(basket1, vrep, id); 
+            fsm = 'end';
         elseif strcmp(fsm, 'end')
-            
         end
-        
         
         %% Robot driving
         % If encounter final goal
         if ~isempty(path)
             % In case we are on the goal
-            if norm(youbotPos(1:2) - path(end,:)) < 0.2
+            if norm(youbotPos(1:2) - path(end,:)) < 0.05
                 targets_q.clear();
                 cur_target = path(end,:);
             end
         end
         % If close to intermediate path target
-        if norm(youbotPos(1:2) - cur_target) < 0.2
+        if norm(youbotPos(1:2) - cur_target) < 0.2 
             if targets_q.NumElements < 2
                 targets_q.clear();
                 
@@ -278,6 +493,33 @@ function youbot_project()
                 
                 repath = true;
                 path = [];
+                if strcmp(fsm, 'goTable')
+                    if ~handling_error
+                        h = youbot_init(vrep, id);
+                        h = youbot_hokuyo_init(vrep, h);
+                        fsm = 'grasp';
+                    else
+                        h = youbot_init(vrep, id);
+                        h = youbot_hokuyo_init(vrep, h);
+                        fsm = 'locateTablesBaskets';
+                    end
+                elseif strcmp(fsm, 'goBasket')
+                    if ~handling_error
+                        h = youbot_init(vrep, id);
+                        h = youbot_hokuyo_init(vrep, h);
+                        fsm = 'drop';
+                    else
+                        h = youbot_init(vrep, id);
+                        h = youbot_hokuyo_init(vrep, h);
+                        fsm = 'grasp';
+                    end
+                
+                elseif strcmp(fsm, 'drop')
+                    h = youbot_init(vrep, id);
+                    h = youbot_hokuyo_init(vrep, h);
+                    fsm = 'end';
+
+                end
             
                 % Add passed point and check unknown map occupancy
                 % If occupancy is mostly the same 5 times in a row, there's
@@ -289,19 +531,28 @@ function youbot_project()
                     mat = occupancyMatrix(map, 'ternary');
                     occpct(occpct_i+1) = (1 - length(find(mat == -1))/( size(mat,1) * size(mat,2) ))*100;
                     
-                    if all( abs(occpct - mean(occpct)) < 0.01 ) && ~all(occpct == 0)
-                        disp('End');
-                        
-                        repath = false;
-                        mapping = false;
-                        fsm = 'end';
+                    % Check if occupancy percentage changed a lot or not in
+                    % the last 5 displacements (prm from start to end)
+                    if all( abs(occpct - mean(occpct)) < 0.10 ) && ~all(occpct == 0) && end1>60*4 
+                       % occupancy porcentage of change set by 0.01 by
+                       % default. I changed it to 0.10
+                            disp('End');
+
+                            repath = false;
+                            mapping = false;
+                            fsm = 'stop';
+                            stop_iter = nb_iter;
+                                               
                     end
                     
                     occpct_i = mod(occpct_i+1, size(occpct,2));
+%                 elseif strcmp(fsm, 'goTable')
+%                     fsm = 'grasp';
                 end
             else
                 targets_q.pop_front();
                 cur_target = targets_q.front();
+
             end
         else
             [v, omega] = controller([youbotPos(1:2) transformAngleRange(youbotEuler(3), pi/2, [-pi pi])]);
@@ -322,7 +573,6 @@ function youbot_project()
             robotVel = robotVel * targetRMatrix;
         end
         
-        
         h = youbot_drive(vrep, h, -robotVel(1), robotVel(2), -rotateRightVel);
         
         
@@ -339,13 +589,18 @@ function youbot_project()
             figure(mapping_fig);
             
             subplot(1,2,1);
-            show(map);
+            if mapping
+                show(map);
+            else
+                show(imap);
+            end
             hold on;
-            if ~isempty(path)
+            if ~isempty(path) && mapping
                 plot(path(:,1)+mapSize(1)/2-originPos(1), path(:,2)+mapSize(2)/2-originPos(2),'k--d')
                 scatter(closePP_map(:,1), closePP_map(:,2), 'b*');
-                % Maybe add rayIntersect info and draw line between youbot
-                % and points
+            elseif ~isempty(tables)
+                scatter(tables(:,1), tables(:,2), 'filled', 'go')
+                scatter(baskets(:,1), baskets(:,2), 'filled', 'bo')
             end
             scatter(25+youbotPos(1)-originPos(1), 25+youbotPos(2)-originPos(2), '*', 'r')
             hold off;
@@ -360,12 +615,12 @@ function youbot_project()
         % mapping
         nb_iter = nb_iter + 1;
         
-        
         %% Calculation time control
         ellapsed = toc(start_loop);
         remaining = timestep - ellapsed;
         if remaining > 0
-            pause(min(remaining, .01));
+            pause(max(remaining, .01));
         end
+            
+        
     end
-end
